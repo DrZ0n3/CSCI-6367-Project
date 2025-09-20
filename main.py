@@ -1,3 +1,8 @@
+#Damian 
+#Jose Luis Castellanos 
+#Pablo SID:20581962
+#Lizeth Chavez SID:20523200
+
 import zipfile
 from bs4 import BeautifulSoup
 import re
