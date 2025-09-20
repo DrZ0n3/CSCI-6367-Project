@@ -1,5 +1,5 @@
-#Damian 
-#Jose Luis Castellanos 
+#Damian SID: 20489422
+#Jose Luis Castellanos SID:20576044
 #Pablo SID:20581962
 #Lizeth Chavez SID:20523200
 
