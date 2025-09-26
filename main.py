@@ -6,84 +6,79 @@
 import zipfile
 from bs4 import BeautifulSoup
 import re
-from collections import Counter
-
-# Using the Huggubg Face model
 from sentence_transformers import SentenceTransformer
-import faiss # facebook thing
+import faiss
 import numpy as np
 
-# loading embedding model
+import tkinter as tk
+from tkinter import ttk
+
+# Load sentence embedding model
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Storing docuemnts in docs
+# Collect documents
 docs = []
 
-# Embed documents
-doc_embeddings = model.encode(docs, convert_to_numpy=True)
-
-# Building index using FAISS
-d = doc_embeddings.shape[1]  # embedding dimension
-index = faiss.IndexFlatL2(d)  # L2 distance
-index.add(doc_embeddings)
-
-# Testing Query
-query = "puppy playing outdoors"
-query_vector = model.encode([query], convert_to_numpy=True)
-
-
-# Displaying top 2 results 
-k = 2
-distances, indices = index.search(query_vector, k)
-
-# Print results
-for idx in indices[0]:
-    print(docs[idx])
-
-
-# Current path for jan.zip
-zip_path = r""
-
-print("Not Google")
+# Path to zip
+zip_path = "C:/Users/lizet/OneDrive/Personal/College/Graduate/Fall 2025/CSCI 6373/CSCI-6367-Project/Jan.zip"
 
 with zipfile.ZipFile(zip_path, "r") as z:
     html_files = [f for f in z.namelist() if f.endswith(".html")]
-
-    file_word_counts = {}  # dictionary: {filename: Counter(words)}
 
     for html_file in html_files:
         with z.open(html_file) as f:
             content = f.read().decode("utf-8", errors="ignore")
             soup = BeautifulSoup(content, "html.parser")
-
-            # Extract plain text
             text = soup.get_text(separator=" ", strip=True)
-
-            # Keep only words (letters only)
             words = re.findall(r"\b[a-zA-Z]+\b", text.lower())
+            docs.append(" ".join(words))  # store as a clean string
 
-            docs = docs(words)
+# docs are loaded, encode them
+doc_embeddings = model.encode(docs, convert_to_numpy=True)
 
-            # NOT IMPORTANT
+# Build FAISS index
+d = doc_embeddings.shape[1]
+index = faiss.IndexFlatL2(d)
+index.add(doc_embeddings)
 
-            # # Count word frequencies
-            # counter = Counter(words)
+def search_button_clicked():
+    # Take user query
+    query_text = search_entry.get()
+    query_words = re.findall(r"\b[a-zA-Z]+\b", query_text.lower())
+    query_clean = " ".join(query_words)
 
-            # file_word_counts[html_file] = counter
+    # Embed query
+    query_vector = model.encode([query_clean], convert_to_numpy=True)
 
-            # # Show top 5 words in this file
-            # print(f"{html_file} -> {len(words)} total words")
-            # for word, count in counter.most_common(5):
-            #     print(f"   {word}: {count}")
+    # Search top-k
+    k = 2
+    distances, indices = index.search(query_vector, k)
 
+    # Clear previous results
+    results_text.delete(1.0, tk.END)
 
-print(docs)
-query = input("What do you want to search: ")
+    # Show results
+    for i, idx in enumerate(indices[0]):
+        result_snippet = docs[idx][:300] + "..."
+        results_text.insert(tk.END, f"---Results {i + 1} ---\n{result_snippet}\n\n")  
 
-query = re.findall(r"\b[a-zA-Z]+\b", query.lower())
-print(query)                              
+# GUI
+# Create the main window
+root = tk.Tk()
+root.title("Python Search Engine")
 
-# for currFile, in file_word_counts: 
-    
-#     for word, count in counter.most_common(2):
-#         print(f"TEST:  {word}: {count} ")
+# Create widgets
+search_label = ttk.Label(root, text="What do you want to search:")
+search_label.pack(pady=5)
+
+search_entry = ttk.Entry(root,width=50)
+search_entry.pack(pady=5)
+
+search_button = ttk.Button(root, text="Search", command=search_button_clicked)
+search_button.pack(pady=5)
+
+results_text = tk.Text(root, height=15, width=60)
+results_text.pack(pady=10)
+
+root.mainloop()
+
