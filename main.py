@@ -3,6 +3,7 @@
 #Pablo SID:20581962
 #Lizeth Chavez SID:20523200
 
+import query_gobbledygook
 import zipfile
 from bs4 import BeautifulSoup
 import re
@@ -34,7 +35,7 @@ inverted_index = defaultdict(lambda: {
 })
 
 # Path to zip
-zip_path = "C:/Users/lizet/OneDrive/Personal/College/Graduate/Fall 2025/CSCI 6373/CSCI-6367-Project/Jan.zip"
+zip_path = "./Jan.zip"
 
 with zipfile.ZipFile(zip_path, "r") as z:
     html_files = [f for f in z.namelist() if f.endswith(".html")]
@@ -181,6 +182,8 @@ search_button.pack(pady=5)
 
 results_text = tk.Text(root, height=15, width=60)
 results_text.pack(pady=10)
+
+print(query_gobbledygook.boolean_query(inverted_index, query_gobbledygook.query_array_encoder("cat and dog and rat")))
 
 root.mainloop()
 

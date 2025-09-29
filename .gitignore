@@ -1,0 +1,50 @@
+# ------------------------
+# Python
+# ------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+.env/
+
+# ------------------------
+# IDEs / Editors
+# ------------------------
+# VSCode
+.vscode/
+
+# PyCharm
+.idea/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ------------------------
+# OS-specific
+# ------------------------
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+
+# ------------------------
+# Logs / Temporary files
+# ------------------------
+*.log
+*.tmp
+
+# ------------------------
+# Secrets / Configs
+# ------------------------
+.env
+config.json
