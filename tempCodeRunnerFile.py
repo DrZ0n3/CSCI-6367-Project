@@ -1,0 +1,1 @@
+print(query_gobbledygook.boolean_query(inverted_index, query_gobbledygook.query_array_encoder("cat and dog and rat")))

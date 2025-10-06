@@ -1,58 +1,108 @@
-from sentence_transformers import SentenceTransformer
+import zipfile
+import re
+from bs4 import BeautifulSoup
 import faiss
 import numpy as np
+from sentence_transformers import SentenceTransformer
+
+# Load embedding model
+model = SentenceTransformer("all-MiniLM-L6-v2")
+
+# --- Extract documents ---
+def extract_documents(zip_path):
+    documents = {}
+    with zipfile.ZipFile(zip_path, 'r') as z:
+        for file_name in z.namelist():
+            if file_name.endswith(".html"):
+                with z.open(file_name) as f:
+                    soup = BeautifulSoup(f.read(), "html.parser")
+                    text = soup.get_text().lower()
+                    documents[file_name] = text
+    return documents
 
 
-import zipfile
-from bs4 import BeautifulSoup
-import re
-# Current path jan.zip
-zip_path = r""
-
-# loading embedding model
-model = SentenceTransformer('all-MiniLM-L6-v2')
-
-# Storing docs
-docs = []
-
-with zipfile.ZipFile(zip_path, "r") as z:
-    html_files = [f for f in z.namelist() if f.endswith(".html")]
-
-    file_word_counts = {}  # dictionary: {filename: Counter(words)}
-
-    for html_file in html_files:
-        with z.open(html_file) as f:
-            content = f.read().decode("utf-8", errors="ignore")
-            soup = BeautifulSoup(content, "html.parser")
-
-            # Extract plain text
-            text = soup.get_text(separator=" ", strip=True)
-
-            # Keep only words (letters only)
-            words = re.findall(r"\b[a-zA-Z]+\b", text.lower())
-
-            docs.append(words)
-
-# print(docs)
+# --- Build vector index ---
+def build_index(documents):
+    texts = list(documents.values())
+    embeddings = model.encode(texts, convert_to_numpy=True)
+    index = faiss.IndexFlatL2(embeddings.shape[1])
+    index.add(embeddings)
+    return index, list(documents.keys()), embeddings
 
 
-# Embed documents
-doc_embeddings = model.encode(docs, convert_to_numpy=True)
+# --- Boolean Query Parser ---
+def tokenize_query(query):
+    return re.findall(r'\w+|AND|OR|NOT|\(|\)', query, re.IGNORECASE)
 
-# Building index using FAISS
-d = doc_embeddings.shape[1]  # embedding dimension
-index = faiss.IndexFlatL2(d)  # L2 distance
-index.add(doc_embeddings)
 
-# Query
-query = input("What to search: ")
-query_vector = model.encode([query], convert_to_numpy=True)
+def eval_query(query_tokens, doc_text):
+    def word_in_doc(word):
+        return re.search(rf"\b{re.escape(word.lower())}\b", doc_text) is not None
 
-# Search (top 2 results)
-k = 2
-distances, indices = index.search(query_vector, k)
+    expression = ""
+    for token in query_tokens:
+        if token.upper() == "AND":
+            expression += " and "
+        elif token.upper() == "OR":
+            expression += " or "
+        elif token.upper() == "NOT":
+            expression += " not "
+        elif token in ("(", ")"):
+            expression += token
+        else:
+            expression += f"word_in_doc('{token}')"
 
-# Showing results
-for idx in indices[0]:
-    print("-----------------------------")
-    print(docs[idx])
+    try:
+        return eval(expression)
+    except SyntaxError:
+        return False
+
+
+# --- Hybrid Search ---
+def hybrid_search(query, documents, index, file_names, embeddings, top_k=5):
+    query_tokens = tokenize_query(query)
+
+    # Check if it's a Boolean query (contains AND/OR/NOT)
+    has_boolean = any(tok.upper() in ["AND", "OR", "NOT"] for tok in query_tokens)
+
+    # Vector part: get semantic candidates
+    query_embedding = model.encode([query], convert_to_numpy=True)
+    distances, ids = index.search(query_embedding, top_k)
+    candidate_files = [file_names[i] for i in ids[0]]
+
+    results = []
+
+    if has_boolean:
+        # Boolean filtering
+        for fname in candidate_files:
+            if eval_query(query_tokens, documents[fname]):
+                results.append(fname)
+    else:
+        # Loose term search: require all words (semantic + literal)
+        terms = query.lower().split()
+        for fname in candidate_files:
+            if all(term in documents[fname] for term in terms):
+                results.append(fname)
+
+    return results
+
+
+# --- Example Usage ---
+if __name__ == "__main__":
+    zip_path = "Jan.zip"   # your zip file
+    docs = extract_documents(zip_path)
+
+    # Build FAISS index
+    index, file_names, embeddings = build_index(docs)
+
+    print("Enter a query (Boolean: 'cat AND dog' or Loose: 'cats jumping'):")
+    user_query = input("> ")
+
+    results = hybrid_search(user_query, docs, index, file_names, embeddings, top_k=10)
+
+    if results:
+        print("\nMatching documents:")
+        for r in results:
+            print("-", r)
+    else:
+        print("\nNo documents matched.")

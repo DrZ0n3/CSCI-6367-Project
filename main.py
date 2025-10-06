@@ -8,7 +8,6 @@ import zipfile
 from bs4 import BeautifulSoup
 import re
 from sentence_transformers import SentenceTransformer
-import faiss
 import numpy as np
 
 import tkinter as tk
@@ -19,8 +18,6 @@ import spacy
 from collections import defaultdict
 import math
 
-# Load sentence embedding model
-model = SentenceTransformer('all-MiniLM-L6-v2')
 
 #Load english lang model 
 nlp = spacy.load("en_core_web_sm")
@@ -55,6 +52,8 @@ with zipfile.ZipFile(zip_path, "r") as z:
                 if token.is_alpha and not token.is_stop
             ]
 
+            clean_text = " ".join(tokens)
+
             #Extract hyperlinks
             hyperlinks = []
             for a_tag in soup.find_all('a', href=True):
@@ -62,17 +61,13 @@ with zipfile.ZipFile(zip_path, "r") as z:
                 hyperlinks.append({"url": url, "visited": False})
 
             #Store document info
-            clean_text = " ".join(tokens)
             docs.append(clean_text) 
             html_filenames.append(html_file)
-
-
             doc_metadata[doc_id] = {
-            
-                    "filename": html_file,
-                    "length": len(tokens),
-                    "tokens": tokens,
-                    "hyperlinks": hyperlinks
+                "filename": html_file,
+                "length": len(tokens),
+                "tokens": tokens,
+                "hyperlinks": hyperlinks 
             }
 
             #inverted index
@@ -97,49 +92,67 @@ for token, entry in inverted_index.items():
     for posting in entry["postings"]:
         posting["tf-idf"] = posting["tf"] * idf
 
-# docs are loaded, encode them
-doc_embeddings = model.encode(docs, convert_to_numpy=True)
+# === Boolean Query Parser ===
+def tokenize_query(query):
+    return re.findall(r'\w+|AND|OR|NOT|\(|\)', query, re.IGNORECASE)
 
-# Build FAISS index
-d = doc_embeddings.shape[1]
-index = faiss.IndexFlatL2(d)
-index.add(doc_embeddings)
+def eval_query(query_tokens, doc_tokens):
+    doc_token_set = set(doc_tokens)
+
+    def word_in_doc(word):
+        return word.lower() in doc_token_set
+
+    expression = ""
+    for token in query_tokens:
+        if token.upper() == "AND":
+            expression += " and "
+        elif token.upper() == "OR":
+            expression += " or "
+        elif token.upper() == "NOT":
+            expression += " not "
+        elif token in ("(", ")"):
+            expression += token
+        else:
+            expression += f"word_in_doc('{token}')"
+
+    try:
+        return eval(expression)
+    except Exception as e:
+        print(f"Error evaluating query: {e}")
+        return False
 
 
 
 
 def search_button_clicked():
     # Take user query
-    query_text = search_entry.get()
+    query_text = search_entry.get().strip()
+    results_text.delete(1.0, tk.END)
 
     #If input is empty
     if not query_text:
-        results_text.delete(1.0, tk.END)
         results_text.insert(tk.END, "Empty Input!\n")
         return
     
-    query_words = re.findall(r"\b[a-zA-Z]+\b", query_text.lower())
-
-    # === SEMANTIC SEARCH (FAISS) ===
-    query_clean = " ".join(query_words)
-
-    # Embed query
-    query_vector = model.encode([query_clean], convert_to_numpy=True)
-
-    # Search top-k
-    k = 2
-    distances, indices = index.search(query_vector, k)
+    query_tokens = tokenize_query(query_text)
+    results = []
 
     # Clear previous results
     results_text.delete(1.0, tk.END)
 
-    results_text.insert(tk.END, "\nTop semantic results: \n")
+    for doc_id, metadata in doc_metadata.items():
+        if eval_query(query_tokens, metadata["tokens"]):
+            results.append(metadata["filename"])
 
-    # Show results
-    for i, idx in enumerate(indices[0]):
-        if idx < len(docs):
-            result_snippet = docs[idx][:300] + "..."
-            results_text.insert(tk.END, f"---Results {i + 1} ({html_filenames[idx]})---\n{result_snippet}\n") 
+    if results:
+        results_text.insert(tk.END, "Found match in:\n")
+        for fname in results:
+            doc_id = html_filenames.index(fname)
+            snippet = docs[doc_id][:300] + "..."
+            results_text.insert(tk.END, f"\n--- {fname} ---\n{snippet}\n")
+    else:
+        results_text.insert(tk.END, "No match found.\n")
+ 
 
 def test_index_and_metadata():
         print("\n=== Document Metadata Sample ===")
@@ -171,7 +184,7 @@ root = tk.Tk()
 root.title("Python Search Engine")
 
 # Create widgets
-search_label = ttk.Label(root, text="What do you want to search:")
+search_label = ttk.Label(root, text="Enter Boolean Query:")
 search_label.pack(pady=5)
 
 search_entry = ttk.Entry(root,width=50)
@@ -183,7 +196,7 @@ search_button.pack(pady=5)
 results_text = tk.Text(root, height=15, width=60)
 results_text.pack(pady=10)
 
-print(query_gobbledygook.boolean_query(inverted_index, query_gobbledygook.query_array_encoder("cat and dog and rat")))
+# print(query_gobbledygook.boolean_query(inverted_index, query_gobbledygook.query_array_encoder("cat and dog and rat")))
 
 root.mainloop()
 
