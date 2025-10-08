@@ -92,35 +92,28 @@ for token, entry in inverted_index.items():
     for posting in entry["postings"]:
         posting["tf-idf"] = posting["tf"] * idf
 
-# === Boolean Query Parser ===
-def tokenize_query(query):
-    return re.findall(r'\w+|AND|OR|NOT|\(|\)', query, re.IGNORECASE)
 
-def eval_query(query_tokens, doc_tokens):
-    doc_token_set = set(doc_tokens)
+def search_engine_gui():
+    global search_entry, results_text
+    root = tk.Tk()
+    root.title("Python Search Engine")
 
-    def word_in_doc(word):
-        return word.lower() in doc_token_set
+    # Create widgets
+    search_label = ttk.Label(root, text="Enter Boolean Query:")
+    search_label.pack(pady=5)
 
-    expression = ""
-    for token in query_tokens:
-        if token.upper() == "AND":
-            expression += " and "
-        elif token.upper() == "OR":
-            expression += " or "
-        elif token.upper() == "NOT":
-            expression += " not "
-        elif token in ("(", ")"):
-            expression += token
-        else:
-            expression += f"word_in_doc('{token}')"
+    search_entry = ttk.Entry(root,width=50)
+    search_entry.pack(pady=5)
 
-    try:
-        return eval(expression)
-    except Exception as e:
-        print(f"Error evaluating query: {e}")
-        return False
+    search_button = ttk.Button(root, text="Search", command=search_button_clicked)
+    search_button.pack(pady=5)
 
+    results_text = tk.Text(root, height=15, width=60)
+    results_text.pack(pady=10)
+
+    print(query_gobbledygook.boolean_query(inverted_index, query_gobbledygook.query_array_encoder("cat and dog and rat")))
+
+    root.mainloop()
 
 
 
@@ -134,20 +127,17 @@ def search_button_clicked():
         results_text.insert(tk.END, "Empty Input!\n")
         return
     
-    query_tokens = tokenize_query(query_text)
-    results = []
+    result_ids = query_gobbledygook.boolean_query(
+        inverted_index, query_gobbledygook.query_array_encoder
+        (query_text))
 
     # Clear previous results
     results_text.delete(1.0, tk.END)
 
-    for doc_id, metadata in doc_metadata.items():
-        if eval_query(query_tokens, metadata["tokens"]):
-            results.append(metadata["filename"])
-
-    if results:
+    if result_ids:
         results_text.insert(tk.END, "Found match in:\n")
-        for fname in results:
-            doc_id = html_filenames.index(fname)
+        for doc_id in result_ids:
+            fname = doc_metadata[doc_id]['filename']
             snippet = docs[doc_id][:300] + "..."
             results_text.insert(tk.END, f"\n--- {fname} ---\n{snippet}\n")
     else:
@@ -165,7 +155,7 @@ def test_index_and_metadata():
             print("-" * 40)
 
         print("\n=== Inverted Index Sample ===")
-        for word, data in list(inverted_index.items())[:5]:  # first 5 words
+        for word, data in list(inverted_index.items())[:10]:  # first 5 words
             print(f"Word: '{word}'")
             print(f"Document Frequency (df): {data['df']}")
             for posting in data["postings"][:2]:  # print first 2 postings
@@ -176,27 +166,6 @@ def test_index_and_metadata():
                 print(f"  Doc ID: {doc_id}, TF: {tf}, TF-IDF: {tfidf:.2f}, Positions: {positions}")
             print("-" * 40) 
 
+
 test_index_and_metadata()
-
-# GUI
-# Create the main window
-root = tk.Tk()
-root.title("Python Search Engine")
-
-# Create widgets
-search_label = ttk.Label(root, text="Enter Boolean Query:")
-search_label.pack(pady=5)
-
-search_entry = ttk.Entry(root,width=50)
-search_entry.pack(pady=5)
-
-search_button = ttk.Button(root, text="Search", command=search_button_clicked)
-search_button.pack(pady=5)
-
-results_text = tk.Text(root, height=15, width=60)
-results_text.pack(pady=10)
-
-# print(query_gobbledygook.boolean_query(inverted_index, query_gobbledygook.query_array_encoder("cat and dog and rat")))
-
-root.mainloop()
-
+search_engine_gui()
