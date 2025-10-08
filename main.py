@@ -1,7 +1,7 @@
-#Damian SID: 20489422
-#Jose Luis Castellanos SID:20576044
-#Pablo SID:20581962
-#Lizeth Chavez SID:20523200
+# Damian SID: 20489422
+# Jose Luis Castellanos SID:20576044
+# Pablo SID:20581962
+# Lizeth Chavez SID:20523200
 
 import query_gobbledygook
 import zipfile
@@ -9,20 +9,17 @@ from bs4 import BeautifulSoup
 import re
 from sentence_transformers import SentenceTransformer
 import numpy as np
-
 import tkinter as tk
 from tkinter import ttk
-
 import spacy
-
 from collections import defaultdict
 import math
+import webbrowser
 
-
-#Load english lang model 
+# Load spaCy language model
 nlp = spacy.load("en_core_web_sm")
 
-# Collect documents
+# Global var
 docs = []
 html_filenames = []
 doc_metadata = {}
@@ -31,7 +28,7 @@ inverted_index = defaultdict(lambda: {
     "postings": []
 })
 
-# Path to zip
+# === PART ONE: LOAD ZIP AND BUILD INVERTED INDEX ===
 zip_path = "./Jan.zip"
 
 with zipfile.ZipFile(zip_path, "r") as z:
@@ -42,130 +39,187 @@ with zipfile.ZipFile(zip_path, "r") as z:
             content = f.read().decode("utf-8", errors="ignore")
             soup = BeautifulSoup(content, "html.parser")
 
-            #spaCy tokenizer
+            # Tokenize using spaCy
             text = soup.get_text(separator=" ", strip=True)
             doc = nlp(text)
-
             tokens = [
                 token.lemma_.lower()
                 for token in doc
                 if token.is_alpha and not token.is_stop
             ]
-
             clean_text = " ".join(tokens)
 
-            #Extract hyperlinks
+            # Hyperlinks
             hyperlinks = []
             for a_tag in soup.find_all('a', href=True):
                 url = a_tag['href']
                 hyperlinks.append({"url": url, "visited": False})
 
-            #Store document info
-            docs.append(clean_text) 
+            # Store metadata
+            docs.append(clean_text)
             html_filenames.append(html_file)
             doc_metadata[doc_id] = {
                 "filename": html_file,
                 "length": len(tokens),
                 "tokens": tokens,
-                "hyperlinks": hyperlinks 
+                "hyperlinks": hyperlinks
             }
 
-            #inverted index
+            # Build inverted index
             position_map = defaultdict(list)
             for pos, token in enumerate(tokens):
                 position_map[token].append(pos)
 
-            for token, position in position_map.items():
-                tf = len(position)
+            for token, positions in position_map.items():
+                tf = len(positions)
                 inverted_index[token]["df"] += 1
                 inverted_index[token]["postings"].append({
                     "doc_id": doc_id,
                     "tf": tf,
-                    "positions": position
+                    "positions": positions
                 })
 
-#compute tf-idf score
-N = len(doc)
+# === PART ONE: COMPUTE TF-IDF ===
+N = len(docs)
 for token, entry in inverted_index.items():
     df = entry["df"]
-    idf = math.log(N/df)
+    idf = math.log(N / (df + 1e-10))  # prevent div by zero
     for posting in entry["postings"]:
         posting["tf-idf"] = posting["tf"] * idf
 
+# === PART THREE: BUILD VOCAB AND DOC-VECTOR MATRIX ===
+vocab = list(inverted_index.keys())
+word_to_index = {word: idx for idx, word in enumerate(vocab)}
 
+doc_vectors = np.zeros((len(doc_metadata), len(vocab)))
+for token, entry in inverted_index.items():
+    token_index = word_to_index[token]
+    for posting in entry["postings"]:
+        doc_id = posting["doc_id"]
+        tfidf = posting["tf-idf"]
+        doc_vectors[doc_id][token_index] = tfidf
+
+# === PART THREE: COSINE SIMILARITY ===
+def cosine_similarity(query_vec, doc_vecs):
+    query_norm = np.linalg.norm(query_vec)
+    doc_norms = np.linalg.norm(doc_vecs, axis=1)
+    query_norm = query_norm if query_norm != 0 else 1e-10
+    doc_norms[doc_norms == 0] = 1e-10
+    sims = doc_vecs @ query_vec / (doc_norms * query_norm)
+    return sims
+
+# === PART THREE: QUERY VECTOR ===
+def compute_query_vector(query_tokens):
+    query_vector = np.zeros(len(vocab))
+    term_counts = defaultdict(int)
+    for token in query_tokens:
+        if token in word_to_index:
+            term_counts[token] += 1
+    for token, tf in term_counts.items():
+        if token in inverted_index:
+            df = inverted_index[token]["df"]
+            idf = math.log(N / (df + 1e-10))
+            tfidf = tf * idf
+            index = word_to_index[token]
+            query_vector[index] = tfidf
+    return query_vector
+
+
+# === PART ONE: GUI FUNCTIONALITY ===
+def open_link(url):
+    webbrowser.open_new_tab(url)
+
+def search_button_clicked():
+    query_text = search_entry.get().strip()
+    results_text.delete(1.0, tk.END)
+
+    if not query_text:
+        results_text.insert(tk.END, "Empty Input!\n")
+        return
+
+    # Detect vector search (no Boolean operators)
+    is_vector_query = all(op not in query_text.lower() for op in ["and", "or", "but"])
+
+    query_tokens = [
+        token.lemma_.lower()
+        for token in nlp(query_text)
+        if token.is_alpha and not token.is_stop
+    ]
+
+    if is_vector_query:
+        query_vec = compute_query_vector(query_tokens)
+        similarities = cosine_similarity(query_vec, doc_vectors)
+        top_indices = similarities.argsort()[::-1][:5]  # Top 5
+
+        results_text.insert(tk.END, "\nTop Vector Space Results:\n")
+        for rank, idx in enumerate(top_indices):
+            if similarities[idx] > 0:
+                fname = doc_metadata[idx]["filename"]
+                snippet = docs[idx][:300] + "..."
+                score = similarities[idx]
+                results_text.insert(tk.END, f"\n--- Rank {rank+1}: {fname} (Score: {score:.3f}) ---\n{snippet}\n")
+    else:
+        result_ids = query_gobbledygook.boolean_query(
+            inverted_index, query_gobbledygook.query_array_encoder(query_text)
+        )
+
+        if result_ids:
+            results_text.insert(tk.END, "Boolean Match Found In:\n")
+            for doc_id in result_ids:
+                metadata = doc_metadata[doc_id]
+                fname = doc_metadata[doc_id]["filename"]
+                url = metadata['hyperlinks'][0]['url'] if metadata['hyperlinks'] else None
+                snippet = docs[doc_id][:300] + "..."
+
+                if url:
+                    #clickable text tag
+                    results_text.tag_config(fname, foreground="blue", underline=True)
+                    results_text.tag_bind(fname,"<Button-1>", lambda e, link=url:open_link(link))
+                else:
+                    results_text.insert(tk.END, "(No URL Found)\n")
+
+                results_text.insert(tk.END, f"\n--- {fname} ---\n{snippet}\n")
+        else:
+            results_text.insert(tk.END, "No match found.\n")
+
+# === PART TWO: LAUNCH GUI ===
 def search_engine_gui():
     global search_entry, results_text
     root = tk.Tk()
     root.title("Python Search Engine")
 
-    # Create widgets
-    search_label = ttk.Label(root, text="Enter Boolean Query:")
+    search_label = ttk.Label(root, text="Enter Boolean or Free-text Query:")
     search_label.pack(pady=5)
 
-    search_entry = ttk.Entry(root,width=50)
+    search_entry = ttk.Entry(root, width=50)
     search_entry.pack(pady=5)
 
     search_button = ttk.Button(root, text="Search", command=search_button_clicked)
     search_button.pack(pady=5)
 
-    results_text = tk.Text(root, height=15, width=60)
+    results_text = tk.Text(root, height=15, width=70)
     results_text.pack(pady=10)
-
-    print(query_gobbledygook.boolean_query(inverted_index, query_gobbledygook.query_array_encoder("cat and dog and rat")))
 
     root.mainloop()
 
-
-
-def search_button_clicked():
-    # Take user query
-    query_text = search_entry.get().strip()
-    results_text.delete(1.0, tk.END)
-
-    #If input is empty
-    if not query_text:
-        results_text.insert(tk.END, "Empty Input!\n")
-        return
-    
-    result_ids = query_gobbledygook.boolean_query(
-        inverted_index, query_gobbledygook.query_array_encoder
-        (query_text))
-
-    # Clear previous results
-    results_text.delete(1.0, tk.END)
-
-    if result_ids:
-        results_text.insert(tk.END, "Found match in:\n")
-        for doc_id in result_ids:
-            fname = doc_metadata[doc_id]['filename']
-            snippet = docs[doc_id][:300] + "..."
-            results_text.insert(tk.END, f"\n--- {fname} ---\n{snippet}\n")
-    else:
-        results_text.insert(tk.END, "No match found.\n")
- 
-
+# === TEST INDEX OUTPUT ===
 def test_index_and_metadata():
-        print("\n=== Document Metadata Sample ===")
-        for doc_id, metadata in list(doc_metadata.items())[:3]:  # print first 3 entries
-            print(f"Doc ID: {doc_id}")
-            print(f"Filename: {metadata['filename']}")
-            print(f"Length (tokens): {metadata['length']}")
-            print(f"Hyperlinks: {[link['url'] for link in metadata['hyperlinks']][:3]}")
-            print("Sample tokens:", metadata["tokens"][:5])
-            print("-" * 40)
+    print("\n=== Document Metadata Sample ===")
+    for doc_id, metadata in list(doc_metadata.items())[:3]:
+        print(f"Doc ID: {doc_id}")
+        print(f"Filename: {metadata['filename']}")
+        print(f"Length (tokens): {metadata['length']}")
+        print(f"Hyperlinks: {[link['url'] for link in metadata['hyperlinks']][:3]}")
+        print("Sample tokens:", metadata["tokens"][:5])
+        print("-" * 40)
 
-        print("\n=== Inverted Index Sample ===")
-        for word, data in list(inverted_index.items())[:10]:  # first 5 words
-            print(f"Word: '{word}'")
-            print(f"Document Frequency (df): {data['df']}")
-            for posting in data["postings"][:2]:  # print first 2 postings
-                doc_id = posting["doc_id"]
-                tf = posting["tf"]
-                tfidf = posting.get("tf-idf", 0.0)
-                positions = posting["positions"][:5]  # show up to 5 positions
-                print(f"  Doc ID: {doc_id}, TF: {tf}, TF-IDF: {tfidf:.2f}, Positions: {positions}")
-            print("-" * 40) 
+    print("\n=== Inverted Index Sample ===")
+    for word, data in list(inverted_index.items())[:5]:
+        print(f"Word: '{word}' | DF: {data['df']}")
+        for posting in data["postings"][:2]:
+            print(f"  Doc ID: {posting['doc_id']}, TF: {posting['tf']}, TF-IDF: {posting.get('tf-idf', 0.0):.3f}, Positions: {posting['positions'][:3]}")
+        print("-" * 40)
 
-
+# === RUN ===
 test_index_and_metadata()
 search_engine_gui()
