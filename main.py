@@ -181,12 +181,54 @@ def boolean_query(query_text):
                     result_docs |= {p["doc_id"] for p in inverted_index[token]["postings"]}
         return result_docs
 
-    # Otherwise, not Boolean (Q4)
+    # Nothing, so no boolean.
     return None
 
 
 # === PART FOUR: PHRASAL SEARCH ===
+def phrasal_search(phrase):
 
+    # Tokenize phrase
+    phrase_tokens = [
+        token.lemma_.lower()
+        for token in nlp(phrase)
+        if token.is_alpha and not token.is_stop
+    ]
+
+    if not phrase_tokens:
+        return set()
+
+    # If a word is missing, return nothing.
+    for token in phrase_tokens:
+        if token not in inverted_index:
+            return set()
+
+    # Find the documents
+    candidate_docs = [
+        {p["doc_id"] for p in inverted_index[token]["postings"]}
+        for token in phrase_tokens
+    ]
+    common_docs = set.intersection(*candidate_docs)
+
+    # Check adjacency
+    matching_docs = set()
+    for doc_id in common_docs:
+        # Collect position lists for each term
+        position_lists = []
+        for token in phrase_tokens:
+            for posting in inverted_index[token]["postings"]:
+                if posting["doc_id"] == doc_id:
+                    position_lists.append(posting["positions"])
+                    break
+
+        # Check if consecutive
+        base_positions = position_lists[0]
+        for pos in base_positions:
+            if all((pos + i) in position_lists[i] for i in range(1, len(position_lists))):
+                matching_docs.add(doc_id)
+                break  # one match is enough for the doc
+
+    return matching_docs
 
 # === PART ONE: GUI FUNCTIONALITY ===
 def open_link(url):
@@ -201,8 +243,28 @@ def search_button_clicked():
         results_text.insert(tk.END, "Empty Input!\n")
         return
 
+    # Detect phrase search (quoted text)
+    if query_text.startswith('"') and query_text.endswith('"'):
+        phrase = query_text.strip('"')
+        result_ids = phrasal_search(phrase)
+        if result_ids:
+            results_text.insert(tk.END, f"Phrase Match Found for \"{phrase}\":\n")
+            for doc_id in sorted(result_ids):
+                metadata = doc_metadata[doc_id]
+                fname = metadata["filename"]
+                snippet = docs[doc_id][:300] + "..."
+                url = metadata["hyperlinks"][0]["url"] if metadata["hyperlinks"] else None
+
+                results_text.insert(tk.END, f"\n--- {fname} ---\n")
+                if url:
+                    results_text.insert(tk.END, f"URL: {url}\n")
+                results_text.insert(tk.END, f"{snippet}\n")
+        else:
+            results_text.insert(tk.END, f"No phrase match found for \"{phrase}\".\n")
+        return
+
     # Detect vector search (no Boolean operators)
-    is_vector_query = all(op not in query_text.lower() for op in ["and", "or", "but"])
+    # is_vector_query = all(op not in query_text.lower() for op in ["and", "or", "but"])
 
     query_tokens = [
         token.lemma_.lower()
@@ -210,11 +272,11 @@ def search_button_clicked():
         if token.is_alpha and not token.is_stop
     ]
 
-    # Boolean queries (Q1–Q3)
+    # Check if boolean queries exist.
     result_ids = boolean_query(query_text)
 
     if result_ids is None:
-        # Vector search fallback (Q4)
+        # Vector search fallback
         query_vec = compute_query_vector(query_tokens)
         similarities = cosine_similarity(query_vec, doc_vectors)
         top_indices = similarities.argsort()[::-1][:5]
@@ -282,6 +344,7 @@ def test_index_and_metadata():
         for posting in data["postings"][:2]:
             print(f"  Doc ID: {posting['doc_id']}, TF: {posting['tf']}, TF-IDF: {posting.get('tf-idf', 0.0):.3f}, Positions: {posting['positions'][:3]}")
         print("-" * 40)
+
 
 # === RUN ===
 test_index_and_metadata()
