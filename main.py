@@ -5,7 +5,7 @@
 
 import query_gobbledygook
 import zipfile
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, Comment
 import re
 from sentence_transformers import SentenceTransformer
 import numpy as np
@@ -39,8 +39,16 @@ with zipfile.ZipFile(zip_path, "r") as z:
             content = f.read().decode("utf-8", errors="ignore")
             soup = BeautifulSoup(content, "html.parser")
 
+            # for comment in soup.find_all(string=lambda text: isinstance(text, Comment)):
+            #    comment.extract()
+
+            paragraphs = soup.find_all("p")
+            if paragraphs:
+                text = " ".join(p.get_text(separator=" ", strip=True) for p in paragraphs)
+            else:
+                text = soup.get_text(separator=" ", strip=True)  # fallback if no <p> tags
+
             # Tokenize using spaCy
-            text = soup.get_text(separator=" ", strip=True)
             doc = nlp(text)
             tokens = [
                 token.lemma_.lower()
@@ -124,10 +132,66 @@ def compute_query_vector(query_tokens):
             query_vector[index] = tfidf
     return query_vector
 
+# === PART THREE: QUERY SEARCHER (Q1–Q4) ===
+def boolean_query(query_text):
+    text = query_text.lower().strip()
+
+    # Text has "but"
+    if " but " in text:
+        left, right = text.split(" but ", 1)
+        left_terms = [t.lemma_.lower() for t in nlp(left) if t.is_alpha and not t.is_stop]
+        right_terms = [t.lemma_.lower() for t in nlp(right) if t.is_alpha and not t.is_stop]
+
+        left_docs = set()
+        for term in left_terms:
+            if term in inverted_index:
+                left_docs |= {p["doc_id"] for p in inverted_index[term]["postings"]}
+
+        right_docs = set()
+        for term in right_terms:
+            if term in inverted_index:
+                right_docs |= {p["doc_id"] for p in inverted_index[term]["postings"]}
+
+        return left_docs - right_docs
+
+    # Text has "and"
+    elif " and " in text:
+        terms = [t.strip() for t in text.split(" and ") if t.strip()]
+        doc_sets = []
+        for term in terms:
+            term_tokens = [t.lemma_.lower() for t in nlp(term) if t.is_alpha and not t.is_stop]
+            docs = set()
+            for token in term_tokens:
+                if token in inverted_index:
+                    docs |= {p["doc_id"] for p in inverted_index[token]["postings"]}
+            if docs:
+                doc_sets.append(docs)
+        if not doc_sets:
+            return set()
+        return set.intersection(*doc_sets)
+
+    # Text has "or"
+    elif " or " in text:
+        terms = [t.strip() for t in text.split(" or ") if t.strip()]
+        result_docs = set()
+        for term in terms:
+            term_tokens = [t.lemma_.lower() for t in nlp(term) if t.is_alpha and not t.is_stop]
+            for token in term_tokens:
+                if token in inverted_index:
+                    result_docs |= {p["doc_id"] for p in inverted_index[token]["postings"]}
+        return result_docs
+
+    # Otherwise, not Boolean (Q4)
+    return None
+
+
+# === PART FOUR: PHRASAL SEARCH ===
+
 
 # === PART ONE: GUI FUNCTIONALITY ===
 def open_link(url):
     webbrowser.open_new_tab(url)
+
 
 def search_button_clicked():
     query_text = search_entry.get().strip()
@@ -146,41 +210,38 @@ def search_button_clicked():
         if token.is_alpha and not token.is_stop
     ]
 
-    if is_vector_query:
+    # Boolean queries (Q1–Q3)
+    result_ids = boolean_query(query_text)
+
+    if result_ids is None:
+        # Vector search fallback (Q4)
         query_vec = compute_query_vector(query_tokens)
         similarities = cosine_similarity(query_vec, doc_vectors)
-        top_indices = similarities.argsort()[::-1][:5]  # Top 5
-
+        top_indices = similarities.argsort()[::-1][:5]
         results_text.insert(tk.END, "\nTop Vector Space Results:\n")
         for rank, idx in enumerate(top_indices):
             if similarities[idx] > 0:
                 fname = doc_metadata[idx]["filename"]
                 snippet = docs[idx][:300] + "..."
                 score = similarities[idx]
-                results_text.insert(tk.END, f"\n--- Rank {rank+1}: {fname} (Score: {score:.3f}) ---\n{snippet}\n")
+                results_text.insert(
+                    tk.END, f"\n--- Rank {rank + 1}: {fname} (Score: {score:.3f}) ---\n{snippet}\n"
+                )
+    elif result_ids:
+
+        results_text.insert(tk.END, "Boolean Match Found In:\n")
+        for doc_id in result_ids:
+            metadata = doc_metadata[doc_id]
+            fname = metadata["filename"]
+            snippet = docs[doc_id][:300] + "..."
+            url = metadata["hyperlinks"][0]["url"] if metadata["hyperlinks"] else None
+
+            results_text.insert(tk.END, f"\n--- {fname} ---\n")
+            if url:
+                results_text.insert(tk.END, f"URL: {url}\n")
+            results_text.insert(tk.END, f"{snippet}\n")
     else:
-        result_ids = query_gobbledygook.boolean_query(
-            inverted_index, query_gobbledygook.query_array_encoder(query_text)
-        )
-
-        if result_ids:
-            results_text.insert(tk.END, "Boolean Match Found In:\n")
-            for doc_id in result_ids:
-                metadata = doc_metadata[doc_id]
-                fname = doc_metadata[doc_id]["filename"]
-                url = metadata['hyperlinks'][0]['url'] if metadata['hyperlinks'] else None
-                snippet = docs[doc_id][:300] + "..."
-
-                if url:
-                    #clickable text tag
-                    results_text.tag_config(fname, foreground="blue", underline=True)
-                    results_text.tag_bind(fname,"<Button-1>", lambda e, link=url:open_link(link))
-                else:
-                    results_text.insert(tk.END, "(No URL Found)\n")
-
-                results_text.insert(tk.END, f"\n--- {fname} ---\n{snippet}\n")
-        else:
-            results_text.insert(tk.END, "No match found.\n")
+        results_text.insert(tk.END, "No match found.\n")
 
 # === PART TWO: LAUNCH GUI ===
 def search_engine_gui():
@@ -203,6 +264,8 @@ def search_engine_gui():
     root.mainloop()
 
 # === TEST INDEX OUTPUT ===
+
+
 def test_index_and_metadata():
     print("\n=== Document Metadata Sample ===")
     for doc_id, metadata in list(doc_metadata.items())[:3]:
