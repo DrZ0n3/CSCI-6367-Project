@@ -3,7 +3,7 @@
 # Pablo SID:20581962
 # Lizeth Chavez SID:20523200
 
-import query_gobbledygook
+from query_gobbledygook import booleanMagic
 import zipfile
 from bs4 import BeautifulSoup, Comment
 import re
@@ -132,6 +132,7 @@ def compute_query_vector(query_tokens):
             query_vector[index] = tfidf
     return query_vector
 
+"""""
 # === PART THREE: QUERY SEARCHER (Q1–Q4) ===
 def boolean_query(query_text):
     text = query_text.lower().strip()
@@ -183,7 +184,7 @@ def boolean_query(query_text):
 
     # Nothing, so no boolean.
     return None
-
+"""""
 
 # === PART FOUR: PHRASAL SEARCH ===
 def phrasal_search(phrase):
@@ -273,8 +274,9 @@ def search_button_clicked():
     ]
 
     # Check if boolean queries exist.
-    result_ids = boolean_query(query_text)
-
+    #result_ids = boolean_query(query_text)
+    result_ids = booleanMagic(query_text,inverted_index)
+    
     if result_ids is None:
         # Vector search fallback
         query_vec = compute_query_vector(query_tokens)
