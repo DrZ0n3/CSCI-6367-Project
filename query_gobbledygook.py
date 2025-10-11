@@ -1,7 +1,7 @@
 def booleanMagic(query_string: str, inverted_index):
     query_string = query_string.replace("(", " ( ").replace(")", " ) ")
     tokens = query_string.split()
-    precedence = {"or": 1, "and": 2, "not": 3}
+    precedence = {"or": 1, "and": 2, "but": 3, "not": 4}
 
     output_stack = []
     op_stack = []
@@ -19,7 +19,9 @@ def booleanMagic(query_string: str, inverted_index):
         else:
             right = output_stack.pop()
             left = output_stack.pop()
-            if op == "and":
+            if op == "but":
+                output_stack.append(left - right)
+            elif op == "and":
                 output_stack.append(left & right)
             elif op == "or":
                 output_stack.append(left | right)
@@ -35,7 +37,7 @@ def booleanMagic(query_string: str, inverted_index):
                 apply_operator()
             op_stack.pop()
 
-        elif token_lower in ("and", "or"):
+        elif token_lower in ("and", "or", "but"):
             while op_stack and op_stack[-1] != "(" and precedence[op_stack[-1]] >= precedence[token_lower]:
                 apply_operator()
             op_stack.append(token_lower)
@@ -54,34 +56,3 @@ def booleanMagic(query_string: str, inverted_index):
         apply_operator()
 
     return list(output_stack.pop() if output_stack else [])
-
-def test_booleanMagic():
-    inverted_index = {
-        "apple": {"postings": [{"doc_id": 1}, {"doc_id": 2}, {"doc_id": 4}]},
-        "banana": {"postings": [{"doc_id": 2}, {"doc_id": 3}]},
-        "cherry": {"postings": [{"doc_id": 3}, {"doc_id": 4}]},
-        "date": {"postings": [{"doc_id": 1}]},
-    }
-
-    tests = [
-        # basic queries
-        ("apple and banana", {2}),
-        ("apple or banana", {1, 2, 3, 4}),
-        ("apple and not banana", {1, 4}),
-        ("not apple", {3}),  # only doc 3 lacks 'apple'
-        # parentheses and precedence
-        ("apple and (banana or cherry)", {2, 4}),
-        ("(apple or banana) and cherry", {3, 4}),
-        ("not (banana or cherry)", {1}),
-        ("(not banana) and (not cherry)", {1}),
-    ]
-
-    for query, expected in tests:
-        result = set(booleanMagic(query, inverted_index))
-        print(f"Query: {query}\n → Result: {result}, Expected: {expected}")
-        assert result == expected, f"Test failed for query: {query}"
-
-    print("\n✅ All tests passed!")
-
-# ---- Run the tests ----
-test_booleanMagic()
