@@ -1,3 +1,6 @@
+import spacy
+nlp = spacy.load("en_core_web_sm")
+
 def booleanMagic(query_string: str, inverted_index):
     query_string = query_string.replace("(", " ( ").replace(")", " ) ")
     tokens = query_string.split()
@@ -26,6 +29,11 @@ def booleanMagic(query_string: str, inverted_index):
             elif op == "or":
                 output_stack.append(left | right)
 
+    def normalize_text(text):
+        """Normalize a token or phrase using spaCy (lemma + lowercase + remove stopwords/punct)."""
+        doc = nlp(text)
+        return [t.lemma_.lower() for t in doc if t.is_alpha and not t.is_stop]
+
     for token in tokens:
         token_lower = token.lower()
 
@@ -46,13 +54,54 @@ def booleanMagic(query_string: str, inverted_index):
             op_stack.append(token_lower)
 
         else:
-            if token_lower in inverted_index:
-                docs = set(post['doc_id'] for post in inverted_index[token_lower]['postings'])
-            else:
-                docs = set()
+            # normalize the query term
+            normalized_terms = normalize_text(token_lower)
+
+            # union of all matching docs for all normalized forms of this token
+            docs = set()
+            for term in normalized_terms:
+                if term in inverted_index:
+                    docs.update(post['doc_id'] for post in inverted_index[term]['postings'])
             output_stack.append(docs)
 
     while op_stack:
         apply_operator()
 
     return list(output_stack.pop() if output_stack else [])
+
+
+inverted_index = {
+    "run": {"postings": [{"doc_id": 1}, {"doc_id": 2}]},
+    "walk": {"postings": [{"doc_id": 2}, {"doc_id": 3}]},
+    "fast": {"postings": [{"doc_id": 1}, {"doc_id": 3}]},
+    "slow": {"postings": [{"doc_id": 3}]},
+    "happy": {"postings": [{"doc_id": 2}]},
+}
+def run_tests_verbose():
+    tests = [
+        # (query, expected_result)
+        ("run", {1, 2}),
+        ("run and fast", {1}),
+        ("run or slow", {1, 2, 3}),
+        ("not run", {3}),
+        ("walk but fast", {2}),
+        ("run and (fast or slow)", {1}),  # fixed expectation
+        ("running and fast", {1}),  # normalization check
+        ("not walk and fast", {1}),
+        ("(run and walk) or not happy", {1, 2, 3}),
+    ]
+
+    for i, (query, expected) in enumerate(tests, start=1):
+        result = set(booleanMagic(query, inverted_index))
+        if result == expected:
+            print(f"✅ Test {i} passed: '{query}' → {result}")
+        else:
+            print(f"❌ Test {i} FAILED: '{query}'")
+            print(f"   Expected: {expected}")
+            print(f"   Got     : {result}")
+            raise AssertionError(f"Test {i} failed")
+
+    print("\nAll tests passed!")
+
+# Run verbose tests
+run_tests_verbose()
