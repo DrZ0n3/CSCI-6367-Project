@@ -104,4 +104,4 @@ def run_tests_verbose():
     print("\nAll tests passed!")
 
 # Run verbose tests
-run_tests_verbose()
+#run_tests_verbose()
