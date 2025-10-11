@@ -1,104 +1,58 @@
-# query array example: A and B or C => ['a,b', 'c']
-def query_array_encoder(query_string: str):
+def booleanMagic(query_string: str, inverted_index):
     query_string = query_string.replace("(", " ( ").replace(")", " ) ")
     tokens = query_string.split()
-    precedence = {"or": 1, "and": 2}
+    precedence = {"or": 1, "and": 2, "but": 3, "not": 4}
 
-    output_stack = []  # holds operands
-    op_stack = []      # holds operators and '('
+    output_stack = []
+    op_stack = []
+
+    all_docs = set()
+    for postings in inverted_index.values():
+        all_docs.update(post['doc_id'] for post in postings['postings'])
 
     def apply_operator():
         op = op_stack.pop()
-        right = output_stack.pop()
-        left = output_stack.pop()
-        if op == "and":
-            # join each combination with comma
-            new_stack = [l + ',' + r for l in left for r in right]
-        elif op == "or":
-            # flatten union of lists
-            new_stack = left + right
+
+        if op == "not":
+            operand = output_stack.pop()
+            output_stack.append(all_docs - operand)
         else:
-            raise ValueError(f"Unknown operator {op}")
-        output_stack.append(new_stack)
+            right = output_stack.pop()
+            left = output_stack.pop()
+            if op == "but":
+                output_stack.append(left - right)
+            elif op == "and":
+                output_stack.append(left & right)
+            elif op == "or":
+                output_stack.append(left | right)
 
     for token in tokens:
         token_lower = token.lower()
-        if token == "(":
-            op_stack.append(token)
-        elif token == ")":
+
+        if token_lower == "(":
+            op_stack.append(token_lower)
+
+        elif token_lower == ")":
             while op_stack and op_stack[-1] != "(":
                 apply_operator()
-            op_stack.pop()  # remove '('
-        elif token_lower in ("and", "or"):
+            op_stack.pop()
+
+        elif token_lower in ("and", "or", "but"):
             while op_stack and op_stack[-1] != "(" and precedence[op_stack[-1]] >= precedence[token_lower]:
                 apply_operator()
             op_stack.append(token_lower)
-        else:
-            output_stack.append([token_lower])  
 
-    # Apply remaining operators
+        elif token_lower == "not":
+            op_stack.append(token_lower)
+
+        else:
+            if token_lower in inverted_index:
+                docs = set(post['doc_id'] for post in inverted_index[token_lower]['postings'])
+            else:
+                docs = set()
+            output_stack.append(docs)
+
     while op_stack:
         apply_operator()
 
-    return output_stack[0]
-
-
-
-
-def boolean_query(inverted_index, query_array):
-    relevant_docs = set()  # still use set for intermediate operations
-
-    for expression in query_array:
-        keys = expression.split(',')  
-        if not keys:
-            continue
-
-        docs_set = None  
-        for key in keys:
-            key_lower = key.lower()
-            if key_lower in inverted_index:
-                key_docs = set(post['doc_id'] for post in inverted_index[key_lower]['postings'])
-                if docs_set is None:
-                    docs_set = key_docs 
-                else:
-                    docs_set &= key_docs  
-            else:
-                docs_set = set()  
-                break
-
-        if docs_set:
-            relevant_docs |= docs_set  
-
-    return list(relevant_docs)  # convert set to list
-
-# Sample inverted index for testing
-inverted_index = {
-    "a": {"postings": [{"doc_id": 1}, {"doc_id": 2}]},
-    "b": {"postings": [{"doc_id": 2}, {"doc_id": 3}]},
-    "c": {"postings": [{"doc_id": 1}, {"doc_id": 3}]},
-    "d": {"postings": [{"doc_id": 3}]},
-}
-
-# Test queries and expected outputs for demonstration
-test_queries = [
-    ("A AND B", {2}),           # A,B => doc 2
-    ("A OR B", {1, 2, 3}),      # A or B => docs 1,2,3
-    ("A AND B OR C", {1,2,3}),  # ['A,B','C'] => union of docs
-    ("A AND (B OR C)", {1,2,3}),# ['A,B','A,C'] => union
-    ("B AND D", {3}),           # ['B,D'] => doc 3
-    ("C OR D", {1,3}),          # ['C','D'] => docs 1,3
-]
-
-def run_boolean_query_tests():
-    for i, (query, expected) in enumerate(test_queries, 1):
-        encoded_query = query_array_encoder(query)
-        result = boolean_query(inverted_index, encoded_query)
-        print(f"Test {i}: {query}")
-        print(f"Encoded query array: {encoded_query}")
-        print(f"Relevant docs: {result}")
-        print(f"Expected docs: {expected}")
-        print(f"Test passed: {result == expected}")
-        print("-" * 50)
-
-# Run the tests
-#run_boolean_query_tests()
+    return list(output_stack.pop() if output_stack else [])
