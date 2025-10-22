@@ -8,10 +8,27 @@ from collections import defaultdict
 import math
 import webbrowser
 
+import pickle
+
+import spacy
+from spacy.lang.en import English
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
+
+
+lemmatizer = WordNetLemmatizer()
+stop_words = set(stopwords.words("english"))
+
 # Load spaCy language model
-nlp = spacy.load("en_core_web_sm")
+nlp = spacy.load("en_core_web_sm", disable=["ner", "parser"])
 
 print("🟢Indexer Function Begins")
+
+def tokenize_text_fast(text):
+    # Lowercase and extract words only
+    tokens = re.findall(r'\b[a-zA-Z]+\b', text.lower())
+    # Remove stopwords + lemmatize
+    return [lemmatizer.lemmatize(t) for t in tokens if t not in stop_words]
 
 def build_index(html_files):
         # Global var
@@ -26,16 +43,20 @@ def build_index(html_files):
         # === PART ONE: LOAD ZIP AND BUILD INVERTED INDEX ===
         for html_file in html_files:
                 with open(html_file, "r", encoding="utf-8", errors="ignore") as f:
-                    content = f.read()
-                    soup = BeautifulSoup(content, "html.parser")
+                    html = f.read()
+                    soup = BeautifulSoup(html, "html.parser")
 
-                    paragraphs = soup.find_all("p")
-                    if paragraphs:
-                        text = " ".join(p.get_text(separator=" ", strip=True) for p in paragraphs)
-                    else:
-                        text = soup.get_text(separator=" ", strip=True)  # fallback if no <p> tags
 
-                    
+                    # paragraphs = soup.find_all("p")
+                    # if paragraphs:
+                    #     text = " ".join(p.get_text(separator=" ", strip=True) for p in paragraphs)
+                    # else:
+                    #     text = soup.get_text(separator=" ", strip=True)  # fallback if no <p> tags
+
+                    text = soup.get_text()
+                    if not text.strip():
+                        continue
+
                     MAX_TEXT_LEN = 900_000  # spaCy limit is 1,000,000
 
                     if len(text) > MAX_TEXT_LEN:
@@ -43,13 +64,8 @@ def build_index(html_files):
                         continue  
                     
                    
-                    # Tokenize using spaCy
-                    doc = nlp(text)
-                    tokens = [
-                        token.lemma_.lower()
-                        for token in doc
-                        if token.is_alpha and not token.is_stop
-                    ]
+                    tokens = tokenize_text_fast(text)
+
                     clean_text = " ".join(tokens)
 
                     # Hyperlinks
@@ -104,3 +120,4 @@ def build_index(html_files):
                 doc_vectors[doc_id][token_index] = tfidf
         
         return inverted_index, doc_metadata, docs, doc_vectors, vocab
+        

@@ -27,7 +27,7 @@ def spider(base_folder="data/rhf", max_pages=100):
             continue
         visited.add(file_path)
         html_files.append(file_path)
-        print(f"🕷️ Visiting: {file_path}")
+        # print(f"🕷️ Visiting: {file_path}")
 
         # Try reading with multiple encodings
         for enc in ("utf-8", "windows-1252", "iso-8859-1", "macroman"):
@@ -48,7 +48,7 @@ def spider(base_folder="data/rhf", max_pages=100):
             if href.endswith((".html", ".htm")):
                 target_path = os.path.normpath(os.path.join(current_dir, href))
                 if os.path.exists(target_path) and target_path not in visited:
-                    print(f"  ↳ Found link to: {target_path}")
+                    # print(f"  ↳ Found link to: {target_path}")
                     queue.append(target_path)
 
     print(f"\n=== Crawl complete! Total files found: {len(html_files)} ===")
