@@ -68,11 +68,17 @@ def build_index(html_files):
 
                     clean_text = " ".join(tokens)
 
-                    # Hyperlinks
+                   # Hyperlinks with anchor text
                     hyperlinks = []
-                    for a_tag in soup.find_all('a', href=True):
-                        url = a_tag['href']
-                        hyperlinks.append({"url": url, "visited": False})
+                    for a_tag in soup.find_all("a", href=True):
+                        url = a_tag["href"].strip()
+                        anchor_text = a_tag.get_text(separator=" ", strip=True) or None  # Extract anchor text
+                        hyperlinks.append({
+                            "url": url,
+                            "anchor_text": anchor_text,
+                            "visited": False
+                        })
+
 
                     # Store metadata
                     doc_id = len(docs)
