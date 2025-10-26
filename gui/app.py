@@ -4,11 +4,14 @@ import tkinter as tk
 from tkinter import ttk
 import webbrowser
 import spacy
+import threading
+from sklearn.neighbors import NearestNeighbors
 
 print("🟢 GUI function started")
 
 
 nlp = spacy.load("en_core_web_sm")
+
 
 # === PART ONE: GUI FUNCTIONALITY ===
 def open_link(url):
@@ -16,6 +19,9 @@ def open_link(url):
 
 # === PART TWO: LAUNCH GUI ===
 def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
+    nn = NearestNeighbors(n_neighbors=5, metric='cosine')
+    nn.fit(doc_vectors)
+
     global search_entry, results_text
     root = tk.Tk()
     root.title("MySearchEngine.com")
@@ -27,6 +33,9 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
     search_entry.pack(pady=5)
 
     def search_button_clicked():
+        threading.Thread(target=perform_search).start()
+       
+    def perform_search():
         query_text = search_entry.get().strip()
         results_text.delete(1.0, tk.END)
 
@@ -66,15 +75,13 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
         if result_ids is None:
             # Vector search fallback
             query_vec = compute_query_vector(query_tokens, vocab, inverted_index)
-            similarities = cosine_similarity(query_vec, doc_vectors)
-            top_indices = similarities.argsort()[::-1][:5]
+            distances, top_indices = nn.kneighbors([query_vec])
             results_text.insert(tk.END, "\nTop Vector Space Results:\n")
-            for rank, idx in enumerate(top_indices):
-                if similarities[idx] > 0:
-                    fname = doc_metadata[idx]["filename"]
-                    snippet = docs[idx][:300] + "..."
-                    score = similarities[idx]
-                    results_text.insert(
+            for rank, idx in enumerate(top_indices[0]):
+                score = 1 - distances[0][rank]  # convert cosine distance -> similarity
+                fname = doc_metadata[idx]["filename"]
+                snippet = docs[idx][:300] + "..."
+                results_text.insert(
                         tk.END, f"\n--- Rank {rank + 1}: {fname} (Score: {score:.3f}) ---\n{snippet}\n"
                     )
         elif result_ids:

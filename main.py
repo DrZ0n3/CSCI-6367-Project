@@ -4,7 +4,7 @@ from gui.app import search_engine_gui
 
 def main():
 
-    html_files = spider(max_pages=20)
+    html_files = spider(max_pages = 9000)
     inverted_index, doc_metadata, docs, doc_vectors, vocab = build_index(html_files)
     search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab)
     

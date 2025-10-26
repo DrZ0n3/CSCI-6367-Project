@@ -29,10 +29,14 @@ def booleanMagic(query_string: str, inverted_index):
             elif op == "or":
                 output_stack.append(left | right)
 
+    # def normalize_text(text):
+    #     """Normalize a token or phrase using spaCy (lemma + lowercase + remove stopwords/punct)."""
+    #     doc = nlp(text)
+    #     return [t.lemma_.lower() for t in doc if t.is_alpha and not t.is_stop]
+
     def normalize_text(text):
-        """Normalize a token or phrase using spaCy (lemma + lowercase + remove stopwords/punct)."""
-        doc = nlp(text)
-        return [t.lemma_.lower() for t in doc if t.is_alpha and not t.is_stop]
+        return [text.lower()]
+
 
     for token in tokens:
         token_lower = token.lower()
