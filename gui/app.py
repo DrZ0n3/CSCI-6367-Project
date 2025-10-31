@@ -17,6 +17,18 @@ nlp = spacy.load("en_core_web_sm")
 def open_link(url):
     webbrowser.open_new_tab(url)
 
+def insert_link(text_widget, url, doc_id):
+    start_idx = text_widget.index(tk.INSERT)
+    text_widget.insert(tk.END, f"URL: {url}\n")
+    end_idx = text_widget.index(tk.INSERT)
+
+    text_widget.tag_add(doc_id, f"{start_idx}+5c", end_idx.strip())
+    text_widget.tag_config(doc_id, foreground="blue", underline=True)
+
+    text_widget.tag_bind(doc_id, "<Button-1>", lambda e, link=url: webbrowser.open_new(link))
+    text_widget.tag_bind(doc_id, "<Enter>", lambda e: text_widget.config(cursor="hand2"))
+    text_widget.tag_bind(doc_id, "<Leave>", lambda e: text_widget.config(cursor=""))
+
 # === PART TWO: LAUNCH GUI ===
 def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
     nn = NearestNeighbors(n_neighbors=5, metric='cosine')
@@ -57,7 +69,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
 
                     results_text.insert(tk.END, f"\n--- {fname} ---\n")
                     if url:
-                        results_text.insert(tk.END, f"URL: {url}\n")
+                        insert_link(results_text, url, doc_id)
                     results_text.insert(tk.END, f"{snippet}\n")
             else:
                 results_text.insert(tk.END, f"No phrase match found for \"{phrase}\".\n")
@@ -95,7 +107,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
 
                 results_text.insert(tk.END, f"\n--- {fname} ---\n")
                 if url:
-                    results_text.insert(tk.END, f"URL: {url}\n")
+                    insert_link(results_text, url, doc_id)
                 results_text.insert(tk.END, f"{snippet}\n")
         else:
             results_text.insert(tk.END, "No match found.\n")
