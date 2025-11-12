@@ -7,7 +7,7 @@ import spacy
 import threading
 from sklearn.neighbors import NearestNeighbors
 
-print("🟢 GUI function started")
+print("GUI function started")
 
 
 nlp = spacy.load("en_core_web_sm")
@@ -92,7 +92,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
         ]
 
         # Check if boolean queries exist.
-        result_ids = booleanMagic(" ".join(query_tokens),inverted_index)
+        result_ids = booleanMagic(query_text,inverted_index)
         
         if result_ids is None:
             # Vector search fallback

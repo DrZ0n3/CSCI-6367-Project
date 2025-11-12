@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 from backend.spider import spider
 from backend.indexer import build_index
 from gui.app import search_engine_gui

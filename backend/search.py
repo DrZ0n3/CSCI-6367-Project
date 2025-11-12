@@ -8,7 +8,7 @@ from sklearn.neighbors import NearestNeighbors
 
 nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "tagger"])
 
-print("🟢 Search Engine Function Started")
+print("Search Engine Function Started")
 
 def build_nearest_neighbors(doc_vectors):
     nn = NearestNeighbors(n_neighbors=5, metric='cosine')

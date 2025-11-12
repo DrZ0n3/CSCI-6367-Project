@@ -7,7 +7,7 @@ import spacy
 from collections import defaultdict
 import math
 import webbrowser
-
+import nltk
 import pickle
 
 import spacy
@@ -17,12 +17,13 @@ from nltk.corpus import stopwords
 
 
 lemmatizer = WordNetLemmatizer()
+nltk.download('wordnet')
 stop_words = set(stopwords.words("english"))
 
 # Load spaCy language model
 nlp = spacy.load("en_core_web_sm", disable=["ner", "parser"])
 
-print("🟢Indexer Function Begins")
+print("Indexer Function Begins")
 
 def tokenize_text_fast(text):
     # Lowercase and extract words only
