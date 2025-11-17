@@ -154,8 +154,12 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
     search_button = ttk.Button(root, text="Show Inverted Index", command=show_inverted_index_sample)
     search_button.pack(pady=5)
 
+    search_reform_button = ttk.Button(root, text="Query Reform Search", command="")
+    search_reform_button.pack(pady=10)
+
     results_text = tk.Text(root, height=50, width=100)
     results_text.pack(pady=10)
+
 
     root.mainloop()
 
