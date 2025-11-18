@@ -151,14 +151,8 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
 
         query_text = search_entry.get().strip()
         results_text.delete(1.0, tk.END)
-        N = len(docs)
-        query_tokens = [
-            token.lemma_.lower()
-            for token in nlp(query_text)
-            if token.is_alpha and not token.is_stop
-        ]
-        query_vec = compute_query_vector(query_tokens, vocab, inverted_index, N)
-        reformed_search = perform_reformed_search(query_text, docs, inverted_index, doc_vectors, query_vec, top_k = 5, select_n = 5)
+     
+        reformed_search = perform_reformed_search(query_text, docs, inverted_index, top_k = 5, select_n = 5)
 
         if not reformed_search:
             results_text.insert(tk.END, "No results found.\n")
