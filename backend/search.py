@@ -1,10 +1,22 @@
 import numpy as np
 import spacy
 import math
-from collections import defaultdict
+import re
+import nltk
+import spacy
 
+from collections import defaultdict, Counter
+from backend.query_gobbledygook import booleanMagic
+from spacy.lang.en import English
+from nltk.stem import WordNetLemmatizer
+from nltk.corpus import stopwords
 from sklearn.neighbors import NearestNeighbors
 
+
+
+lemmatizer = WordNetLemmatizer()
+nltk.download('wordnet')
+stop_words = set(stopwords.words("english"))
 
 nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "tagger"])
 
@@ -85,3 +97,71 @@ def phrasal_search(phrase,inverted_index):
                 break  # one match is enough for the doc
 
     return matching_docs
+
+def perform_reformed_search(query_text, docs, inverted_index, top_k, select_n):
+
+    S = booleanMagic(query_text,inverted_index)
+
+    if not S:
+        return
+    
+    A = select_top_pages(S, docs, top_k)
+
+    K = extract_keywords(A, docs)
+
+    correlated = corr_keyowrds(query_text, K, select_n)
+    reformed_q = reform_query(query_text, correlated)
+
+    S_prime = booleanMagic(reformed_q, inverted_index)
+
+    final_results = list(dict.fromkeys(list(S) + list(S_prime)))
+
+    return final_results
+
+def select_top_pages(S, docs, top_k):
+    scores = []
+    for doc_id in S:
+        text = docs[doc_id].lower()
+        unique_terms = set(text.split())
+        score = len(unique_terms)
+        scores.append((score, doc_id))
+
+    scores.sort(reverse=True)
+    return [doc_id for _, doc_id in scores[:top_k]]
+
+def extract_keywords(query_text, docs, top_n = 20):
+    words = []
+
+    for doc_id in query_text:
+        text = docs[doc_id].lower()
+        text = re.sub(r"[^a-z0-9 ]", " ", text)
+        tokens = text.split()
+
+        for tok in tokens:
+            if tok not in stop_words and len(tok) > 2:
+                words.append(tok)
+
+    freq = Counter(words)
+    return [w for w, _ in freq.most_common(top_n)]
+
+def corr_keyowrds(query_text, K, select_n):
+    q_terms = set(query_text.lower().split())
+    correlations = []
+
+    for kw in K:
+        score = 0
+        for q in q_terms:
+            # simple correlation: higher weight if kw contains q or vice-versa
+            if q in kw or kw in q:
+                score += 2
+            # lexical similarity (edit distance threshold)
+            elif abs(len(q) - len(kw)) <= 2:
+                score += 1
+        correlations.append((score, kw))
+
+    correlations.sort(reverse=True)
+    return [kw for score, kw in correlations[:select_n] if score > 0]
+
+def reform_query(query_text, correlated):
+    new_query = query_text + " " + " ".join(correlated)
+    return new_query.strip()

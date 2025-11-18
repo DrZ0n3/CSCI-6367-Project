@@ -1,4 +1,4 @@
-from backend.search import phrasal_search, compute_query_vector, cosine_similarity
+from backend.search import phrasal_search, compute_query_vector, cosine_similarity, perform_reformed_search
 from backend.query_gobbledygook import booleanMagic
 import tkinter as tk
 from tkinter import ttk
@@ -147,6 +147,41 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
                 )
             results_text.insert(tk.END, "-" * 40 + "\n")
 
+    def reform_search_clicked():
+
+        query_text = search_entry.get().strip()
+        results_text.delete(1.0, tk.END)
+        N = len(docs)
+        query_tokens = [
+            token.lemma_.lower()
+            for token in nlp(query_text)
+            if token.is_alpha and not token.is_stop
+        ]
+        query_vec = compute_query_vector(query_tokens, vocab, inverted_index, N)
+        reformed_search = perform_reformed_search(query_text, docs, inverted_index, doc_vectors, query_vec, top_k = 5, select_n = 5)
+
+        if not reformed_search:
+            results_text.insert(tk.END, "No results found.\n")
+
+        for doc_id in reformed_search:
+                    metadata = doc_metadata[doc_id]
+                    fname = metadata["filename"]
+                    snippet = docs[doc_id][:300] + "..."
+                    url = metadata["hyperlinks"][0]["url"] if metadata["hyperlinks"] else None
+
+                    results_text.insert(tk.END, "\n")
+                    insert_link(results_text,fname, doc_id, True)
+                    results_text.insert(tk.END, "\n\n")
+                    results_text.insert(tk.END, "URLs Referenced: ")
+
+                    urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3] if "url" in link]
+                    for i, url in enumerate(urls):
+                        insert_link(results_text, url, f"url_{i}")
+                        if i < len(urls) - 1:  
+                            results_text.insert(tk.END, ", ")
+                    results_text.insert(tk.END, "\n")
+                    results_text.insert(tk.END, f"{snippet}\n")
+
 
     search_button = ttk.Button(root, text="Search", command=search_button_clicked)
     search_button.pack(pady=5)
@@ -154,7 +189,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
     search_button = ttk.Button(root, text="Show Inverted Index", command=show_inverted_index_sample)
     search_button.pack(pady=5)
 
-    search_reform_button = ttk.Button(root, text="Query Reform Search", command="")
+    search_reform_button = ttk.Button(root, text="Query Reform Search", command=reform_search_clicked)
     search_reform_button.pack(pady=10)
 
     results_text = tk.Text(root, height=50, width=100)
