@@ -91,13 +91,16 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
             if token.is_alpha and not token.is_stop
         ]
         # Check if boolean query.
-        BOOLEAN_OPERATORS = {"and", "or", "not"}
+        BOOLEAN_OPERATORS = {
+            "and", "or", "not", "but",
+            "&&", "||", "!", "&", "|"
+            ,}
 
         bool_query = False
-        for token in query_tokens:
+        for token in query_text.lower().split():
             if token in BOOLEAN_OPERATORS:
                 bool_query = True
-                break 
+                break
         if bool_query:
             result_ids = booleanMagic(query_text,inverted_index)
         
