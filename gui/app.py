@@ -90,9 +90,16 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
             for token in nlp(query_text)
             if token.is_alpha and not token.is_stop
         ]
+        # Check if boolean query.
+        BOOLEAN_OPERATORS = {"and", "or", "not"}
 
-        # Check if boolean queries exist.
-        result_ids = booleanMagic(query_text,inverted_index)
+        bool_query = False
+        for token in query_tokens:
+            if token in BOOLEAN_OPERATORS:
+                bool_query = True
+                break 
+        if bool_query:
+            result_ids = booleanMagic(query_text,inverted_index)
         
         if result_ids is None:
             # Vector search fallback
@@ -127,8 +134,9 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
                         results_text.insert(tk.END, ", ")
                 results_text.insert(tk.END, "\n")
                 results_text.insert(tk.END, f"{snippet}\n")
-        else:
-            results_text.insert(tk.END, "No match found.\n")
+        #else:
+           # results_text.insert(tk.END, "No match found.\n")
+        #this does nothing maybe we add a margin of error for the top results in vector search which if not passed moves to this execution
 
     def show_inverted_index_sample():
         results_text.delete(1.0, tk.END)
