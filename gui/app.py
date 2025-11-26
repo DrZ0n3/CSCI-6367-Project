@@ -1,3 +1,4 @@
+import numpy as np
 from backend.search import phrasal_search, compute_query_vector, cosine_similarity
 from backend.query_gobbledygook import booleanMagic
 import tkinter as tk
@@ -15,6 +16,7 @@ nlp = spacy.load("en_core_web_sm")
 
 # === PART ONE: GUI FUNCTIONALITY ===
 def insert_link(text_widget, url, doc_id, centered=False):
+    
     start_idx = text_widget.index(tk.INSERT)
     text_widget.insert(tk.END, url)
     end_idx = text_widget.index(tk.INSERT)
@@ -54,6 +56,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
     def perform_search():
         query_text = search_entry.get().strip()
         results_text.delete(1.0, tk.END)
+        result_ids = None
 
         if not query_text:
             results_text.insert(tk.END, "Empty Input!\n")
@@ -105,13 +108,32 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
             result_ids = booleanMagic(query_text,inverted_index)
         
         if result_ids is None:
+            # After building doc_vectors (shape: num_docs × vocab_size)
+            normalized_docs = doc_vectors / np.linalg.norm(doc_vectors, axis=1, keepdims=True)
+
             # Vector search fallback
             N = len(docs)
             query_vec = compute_query_vector(query_tokens, vocab, inverted_index, N)
-            distances, top_indices = nn.kneighbors([query_vec])
+
+            # Normalize query vector
+            qnorm = np.linalg.norm(query_vec)
+            if qnorm == 0:
+                results_text.insert(tk.END, "\nNo matching terms found in the index.\n")
+                return
+
+            q = query_vec / qnorm
+
+            # Compute cosine similarity using dot product
+            scores = normalized_docs @ q   # (num_docs,)
+
+            # Top-k results (same as before)
+            k = 5
+            top_indices = np.argsort(scores)[::-1][:k]
+
             results_text.insert(tk.END, "\nTop Vector Space Results:\n")
-            for rank, idx in enumerate(top_indices[0]):
-                score = 1 - distances[0][rank]  # convert cosine distance -> similarity
+
+            for rank, idx in enumerate(top_indices):
+                score = scores[idx]                 # cosine similarity
                 fname = doc_metadata[idx]["filename"]
                 snippet = docs[idx][:300] + "..."
                 results_text.insert(tk.END, f"\n--- Rank {rank + 1}: ")

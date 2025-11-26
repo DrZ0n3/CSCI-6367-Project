@@ -25,9 +25,11 @@ def cosine_similarity(query_vec, doc_vecs):
     return sims
 
 # === PART THREE: QUERY VECTOR ===
-def compute_query_vector(query_tokens,vocab,word_to_index,inverted_index,N):
+def compute_query_vector(query_tokens,vocab,inverted_index,N):
+    
     query_vector = np.zeros(len(vocab))
     term_counts = defaultdict(int)
+    word_to_index = {word: i for i, word in enumerate(vocab)}
     for token in query_tokens:
         if token in word_to_index:
             term_counts[token] += 1
