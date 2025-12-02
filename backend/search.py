@@ -9,19 +9,15 @@ nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "tagger", "textcat"
 
 print("Search Engine Function Started")
 
-# ============================================================
 # FAST: Precache log function
 _log = math.log
-# ============================================================
 
 def build_nearest_neighbors(doc_vectors):
     nn = NearestNeighbors(n_neighbors=5, metric='cosine')
     nn.fit(doc_vectors)
     return nn
 
-# ============================================================
-# COSINE SIMILARITY (vectorized and extremely fast)
-# ============================================================
+# COSINE SIMILARITY 
 def cosine_similarity(query_vec, doc_vecs):
     # Precompute norms once
     doc_norms = np.linalg.norm(doc_vecs, axis=1)
@@ -34,14 +30,14 @@ def cosine_similarity(query_vec, doc_vecs):
     # Vectorized cosine similarity
     return (doc_vecs @ query_vec) / (doc_norms * query_norm)
 
-# ============================================================
+
 # QUERY VECTOR (optimized without changing parameters)
-# ============================================================
+
 def compute_query_vector(query_tokens, vocab, inverted_index, N):
     vocab_len = len(vocab)
     query_vector = np.zeros(vocab_len, dtype=float)
 
-    # Build word→index map ONE TIME efficiently
+    # Build word→index map ONE TIME
     word_to_index = {word: i for i, word in enumerate(vocab)}
 
     # Count token frequencies
@@ -62,11 +58,9 @@ def compute_query_vector(query_tokens, vocab, inverted_index, N):
 
     return query_vector
 
-# ============================================================
 # PHRASE SEARCH — major optimizations but same functionality
-# ============================================================
 def phrasal_search(phrase, inverted_index):
-    # Tokenize & normalize once (spaCy disabled extras)
+    # Tokenize & normalize once
     phrase_tokens = [
         tok.lemma_.lower()
         for tok in nlp(phrase)

@@ -24,7 +24,7 @@ def spider(base_folder="data/rhf", max_pages=9000):
     # Only parse <a href=...> tags, skip rest of HTML tree
     link_only = SoupStrainer("a")
 
-    # Cache filesystem checks (huge speed boost)
+    # Cache filesystem checks 
     @lru_cache(maxsize=10000)
     def fast_exists(path):
         return os.path.exists(path)
@@ -39,7 +39,7 @@ def spider(base_folder="data/rhf", max_pages=9000):
 
         # Try reading with best-guess encoding first
         content = None
-        for enc in ("utf-8", "latin1"):  # latin1 replaces most of your list
+        for enc in ("utf-8", "latin1"):
             try:
                 with open(file_path, "r", encoding=enc, errors="replace") as f:
                     content = f.read()
@@ -53,7 +53,7 @@ def spider(base_folder="data/rhf", max_pages=9000):
 
         current_dir = os.path.dirname(file_path)
 
-        # Extremely fast link parsing
+        # fast link parsing
         soup = BeautifulSoup(content, "lxml", parse_only=link_only)
 
         for link in soup:

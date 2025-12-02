@@ -42,7 +42,7 @@ def build_index(html_files):
         with open(html_file, "r", encoding="utf-8", errors="ignore") as f:
             html = f.read()
 
-        # Extract text FAST
+        # Extract text 
         text = BeautifulSoup(html, "lxml", parse_only=SoupStrainer(text=True)).get_text()
 
         if not text.strip():
