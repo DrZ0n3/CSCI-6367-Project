@@ -127,7 +127,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
             scores = normalized_docs @ q   # (num_docs,)
 
             # Top-k results (same as before)
-            k = 5
+            k = 10
             top_indices = np.argsort(scores)[::-1][:k]
 
             results_text.insert(tk.END, "\nTop Vector Space Results:\n")
