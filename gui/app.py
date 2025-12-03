@@ -140,7 +140,7 @@ def search_engine_gui(inverted_index, doc_metadata, docs, doc_vectors, vocab):
         q = query_vec / qnorm
         scores = normalized_docs @ q
 
-        k = 10
+        k = 5
         top_indices = np.argsort(scores)[::-1][:k]
 
         results_text.insert(tk.END, "\nTop Vector Space Results:\n")
