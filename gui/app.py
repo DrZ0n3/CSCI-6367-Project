@@ -1,5 +1,5 @@
 import numpy as np
-from backend.search import phrasal_search, compute_query_vector, cosine_similarity
+from backend.search import phrasal_search, perform_reformed_search
 from backend.query_gobbledygook import booleanMagic
 import tkinter as tk
 from tkinter import ttk
@@ -112,32 +112,65 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
             normalized_docs = doc_vectors / np.linalg.norm(doc_vectors, axis=1, keepdims=True)
 
             # Vector search fallback
-            N = len(docs)
-            query_vec = compute_query_vector(query_tokens, vocab, inverted_index, N)
-
-            # Normalize query vector
-            qnorm = np.linalg.norm(query_vec)
-            if qnorm == 0:
-                results_text.insert(tk.END, "\nNo matching terms found in the index.\n")
-                return
-
-            q = query_vec / qnorm
-
-            # Compute cosine similarity using dot product
-            scores = normalized_docs @ q   # (num_docs,)
-
-            # Top-k results (same as before)
-            k = 10
-            top_indices = np.argsort(scores)[::-1][:k]
+            search = perform_reformed_search(query_text, docs, doc_vectors, vocab, inverted_index)
+            original_indices = search['initial_results']
+            final_indices = search['reformatted_results']
 
             results_text.insert(tk.END, "\nTop Vector Space Results:\n")
+            results_text.insert(tk.END, f"\nReformatted Query: {search['reformed_query']}\n")
 
-            for rank, idx in enumerate(top_indices):
-                score = scores[idx]                 # cosine similarity
-                fname = doc_metadata[idx]["filename"]
+            for rank, idx in enumerate(original_indices):
+                # fname = doc_metadata[idx]["filename"]
+                # snippet = docs[idx][:300] + "..."
+                # results_text.insert(tk.END, f"\n--- Rank {rank + 1}: ")
+                # insert_link(results_text, fname, idx)
+
+                metadata = doc_metadata[idx]
+                fname = metadata["filename"]
                 snippet = docs[idx][:300] + "..."
+                url = metadata["hyperlinks"][0]["url"] if metadata["hyperlinks"] else None
+
+
+                results_text.insert(tk.END, "\n")
+                insert_link(results_text,fname, idx, True)
+                results_text.insert(tk.END, "\n\n")
+                results_text.insert(tk.END, "URLs Referenced: ")
+
+                urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3] if "url" in link]
+                for i, url in enumerate(urls):
+                    insert_link(results_text, url, f"url_{i}")
+                    if i < len(urls) - 1:  
+                        results_text.insert(tk.END, ", ")
+                results_text.insert(tk.END, "\n")
+                results_text.insert(tk.END, f"{snippet}\n")
+
+            results_text.insert(tk.END, "======================================================")
+
+            for rank, idx in enumerate(final_indices):
+                # fname = doc_metadata[idx]["filename"]
+                # snippet = docs[idx][:300] + "..."
+                # results_text.insert(tk.END, f"\n--- Rank {rank + 1}: ")
+                # insert_link(results_text, fname, idx)
+
+                metadata = doc_metadata[idx]
+                fname = metadata["filename"]
+                snippet = docs[idx][:300] + "..."
+                url = metadata["hyperlinks"][0]["url"] if metadata["hyperlinks"] else None
+
+                results_text.insert(tk.END, "\n")
+                insert_link(results_text,fname, idx, True)
+                results_text.insert(tk.END, "\n\n")
                 results_text.insert(tk.END, f"\n--- Rank {rank + 1}: ")
-                insert_link(results_text, fname, idx)
+
+                urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3] if "url" in link]
+                for i, url in enumerate(urls):
+                    insert_link(results_text, url, f"url_{i}")
+                    if i < len(urls) - 1:  
+                        results_text.insert(tk.END, ", ")
+                results_text.insert(tk.END, "\n")
+                results_text.insert(tk.END, f"{snippet}\n")
+
+                
         elif result_ids:
 
             results_text.insert(tk.END, "Boolean Match Found In:\n")
