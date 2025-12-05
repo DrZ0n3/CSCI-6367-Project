@@ -7,6 +7,7 @@ import webbrowser
 import spacy
 import threading
 from sklearn.neighbors import NearestNeighbors
+import threading
 
 print("GUI function started")
 
@@ -96,14 +97,14 @@ def search_engine_gui(inverted_index, doc_metadata, docs, doc_vectors, vocab):
                 results_text.insert(tk.END, "\n" + snippet + "\n")
             return
 
-        # -------- TOKENIZE QUERY ONCE (FAST MODE) --------
+        # -------- TOKENIZE QUERY ONCE--------
         query_tokens = [
             tok.lemma_.lower()
             for tok in nlp(query_text)
             if tok.is_alpha and not tok.is_stop
         ]
 
-        # -------- BOOLEAN DETECTION (FASTER) --------
+        # -------- BOOLEAN DETECTION--------
         bool_query = any(tok in BOOLEAN_OPERATORS for tok in query_text.lower().split())
 
         if bool_query:
@@ -128,7 +129,7 @@ def search_engine_gui(inverted_index, doc_metadata, docs, doc_vectors, vocab):
                 results_text.insert(tk.END, "\n" + snippet + "\n")
             return
 
-        # -------- VECTOR SEARCH (FAST) --------
+        # -------- VECTOR SEARCH--------
         N = len(docs)
         query_vec = compute_query_vector(query_tokens, vocab, inverted_index, N)
 

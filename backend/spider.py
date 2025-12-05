@@ -39,7 +39,7 @@ def spider(base_folder="data/rhf", max_pages=9000):
 
         # Try reading with best-guess encoding first
         content = None
-        for enc in ("utf-8", "latin1"):
+        for enc in ("utf-8", "latin1"): 
             try:
                 with open(file_path, "r", encoding=enc, errors="replace") as f:
                     content = f.read()
@@ -53,7 +53,7 @@ def spider(base_folder="data/rhf", max_pages=9000):
 
         current_dir = os.path.dirname(file_path)
 
-        # fast link parsing
+        # link parsing
         soup = BeautifulSoup(content, "lxml", parse_only=link_only)
 
         for link in soup:
