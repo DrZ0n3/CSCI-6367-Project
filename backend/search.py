@@ -96,11 +96,6 @@ stop_words = set([
     "have","has","had","their","its","into","about","but"
 ])
 
-def build_nn_index(doc_vectors):
-    nn = NearestNeighbors(n_neighbors=5, metric="cosine")
-    nn.fit(doc_vectors)
-    return nn
-
 
 def search_docs(nn, query_vec, n_results=10):
     distances, indices = nn.kneighbors([query_vec], n_neighbors=n_results)
@@ -167,7 +162,7 @@ def reform_query(query_text, correlated):
     return " ".join(all_words)
 
 
-def perform_reformed_search(query_text, docs, doc_vectors, vocab, inverted_index, 
+def perform_reformed_search(query_text, docs, nn, vocab, inverted_index, 
                             top_k=5, k=10, n_results=5):
 
     query_tokens = query_text.lower().split()
@@ -177,7 +172,6 @@ def perform_reformed_search(query_text, docs, doc_vectors, vocab, inverted_index
         inverted_index,
         len(docs)
 )
-    nn = build_nn_index(doc_vectors)
 
     # 1) First retrieval S
     S = search_docs(nn, query_vec, n_results=n_results)

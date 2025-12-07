@@ -7,36 +7,49 @@ import webbrowser
 import spacy
 import threading
 from sklearn.neighbors import NearestNeighbors
+import uuid
 
 print("GUI function started")
-
 
 nlp = spacy.load("en_core_web_sm")
 
 
-# === PART ONE: GUI FUNCTIONALITY ===
-def insert_link(text_widget, url, doc_id, centered=False):
-    
-    start_idx = text_widget.index(tk.INSERT)
-    text_widget.insert(tk.END, url)
-    end_idx = text_widget.index(tk.INSERT)
+used_tags = set()
 
-    text_widget.tag_add(doc_id, f"{start_idx}", end_idx.strip())
+def unique_tag():
+    """Generate a globally unique short hash for Tkinter tags."""
+    t = uuid.uuid4().hex[:10]
+    while t in used_tags:
+        t = uuid.uuid4().hex[:10]
+    used_tags.add(t)
+    return t
+
+
+# INSERT LINK FUNCTION 
+def insert_link(text_widget, label, tag, color="blue", centered=False):
+    """
+    Inserts a clickable hyperlink with a UNIQUE tag name.
+    """
+    start = text_widget.index(tk.INSERT)
+    text_widget.insert(tk.END, label)
+    end = text_widget.index(tk.INSERT)
+
+    text_widget.tag_add(tag, start, end)
+
+    cfg = {"foreground": color, "underline": True}
     if centered:
-        text_widget.tag_config(doc_id, foreground="blue", underline=True, justify="center")
-    else:
-        text_widget.tag_config(doc_id, foreground="blue", underline=True)
+        cfg["justify"] = "center"
+
+    text_widget.tag_config(tag, **cfg)
+
+    text_widget.tag_bind(tag, "<Button-1>", lambda e, link=label: webbrowser.open_new(link))
+    text_widget.tag_bind(tag, "<Enter>", lambda e: text_widget.config(cursor="hand2"))
+    text_widget.tag_bind(tag, "<Leave>", lambda e: text_widget.config(cursor=""))
 
 
-    text_widget.tag_bind(doc_id, "<Button-1>", lambda e, link=url: webbrowser.open_new(link))
-    text_widget.tag_bind(doc_id, "<Enter>", lambda e: text_widget.config(cursor="hand2"))
-    text_widget.tag_bind(doc_id, "<Leave>", lambda e: text_widget.config(cursor=""))
+# GUI MAIN FUNCTION
+def search_engine_gui(inverted_index, doc_metadata, docs, doc_vectors, vocab):
 
-        
-
-
-# === PART TWO: LAUNCH GUI ===
-def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
     nn = NearestNeighbors(n_neighbors=5, metric='cosine')
     nn.fit(doc_vectors)
 
@@ -52,159 +65,151 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
 
     def search_button_clicked():
         threading.Thread(target=perform_search).start()
-       
+
     def perform_search():
         query_text = search_entry.get().strip()
         results_text.delete(1.0, tk.END)
-        result_ids = None
 
         if not query_text:
             results_text.insert(tk.END, "Empty Input!\n")
             return
 
-        # Detect phrase search (quoted text)
+        # PHRASE SEARCH - Purple
         if query_text.startswith('"') and query_text.endswith('"'):
             phrase = query_text.strip('"')
             result_ids = phrasal_search(phrase, inverted_index)
+
             if result_ids:
                 results_text.insert(tk.END, f"Phrase Match Found for \"{phrase}\":\n")
+
                 for doc_id in sorted(result_ids):
                     metadata = doc_metadata[doc_id]
                     fname = metadata["filename"]
                     snippet = docs[doc_id][:300] + "..."
-                    results_text.insert(tk.END, "\n")
-                    insert_link(results_text,fname, doc_id, True)
-                    results_text.insert(tk.END, "\n\n")
-                    results_text.insert(tk.END, "URLs Referenced: ")
 
-                    urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3] if "url" in link]
-                    for i, url in enumerate(urls):
-                        insert_link(results_text, url, f"url_{i}")
-                        if i < len(urls) - 1:  
-                            results_text.insert(tk.END, ", ")
-                    results_text.insert(tk.END, "\n")        
-                    results_text.insert(tk.END, f"{snippet}\n")
+                    tag = unique_tag()
+
+                    results_text.insert(tk.END, "\n")
+                    insert_link(results_text, fname, tag, "purple", centered=True)
+
+                    # URLs
+                    results_text.insert(tk.END, "\n\nURLs Referenced: ")
+                    urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3]]
+
+                    for url in urls:
+                        url_tag = unique_tag()
+                        insert_link(results_text, url, url_tag, "purple")
+                        results_text.insert(tk.END, ", ")
+
+                    results_text.insert(tk.END, "\n" + snippet + "\n")
+
             else:
                 results_text.insert(tk.END, f"No phrase match found for \"{phrase}\".\n")
             return
 
-        query_tokens = [
-            token.lemma_.lower()
-            for token in nlp(query_text)
-            if token.is_alpha and not token.is_stop
-        ]
-        # Check if boolean query.
-        BOOLEAN_OPERATORS = {
-            "and", "or", "not", "but",
-            "&&", "||", "!", "&", "|"
-            ,}
+        # BOOLEAN SEARCH - BLACK
+        BOOLEAN_OPS = {"and", "or", "not", "but", "&&", "||", "!", "&", "|"}
 
-        bool_query = False
-        for token in query_text.lower().split():
-            if token in BOOLEAN_OPERATORS:
-                bool_query = True
-                break
-        if bool_query:
-            result_ids = booleanMagic(query_text,inverted_index)
-        
-        if result_ids is None:
-            # After building doc_vectors (shape: num_docs × vocab_size)
-            normalized_docs = doc_vectors / np.linalg.norm(doc_vectors, axis=1, keepdims=True)
+        tokens = query_text.lower().split()
+        if any(tok in BOOLEAN_OPS for tok in tokens):
+            result_ids = booleanMagic(query_text, inverted_index)
 
-            # Vector search fallback
-            search = perform_reformed_search(query_text, docs, doc_vectors, vocab, inverted_index)
-            original_indices = search['initial_results']
-            final_indices = search['reformatted_results']
+            if result_ids:
+                results_text.insert(tk.END, "Boolean Match Found In:\n")
 
-            results_text.insert(tk.END, "\nTop Vector Space Results:\n")
-            results_text.insert(tk.END, f"\nReformatted Query: {search['reformed_query']}\n")
+                for doc_id in result_ids:
+                    metadata = doc_metadata[doc_id]
+                    fname = metadata["filename"]
+                    snippet = docs[doc_id][:300] + "..."
 
-            for rank, idx in enumerate(original_indices):
-                # fname = doc_metadata[idx]["filename"]
-                # snippet = docs[idx][:300] + "..."
-                # results_text.insert(tk.END, f"\n--- Rank {rank + 1}: ")
-                # insert_link(results_text, fname, idx)
+                    tag = unique_tag()
+                    results_text.insert(tk.END, "\n")
+                    insert_link(results_text, fname, tag, "black", centered=True)
 
-                metadata = doc_metadata[idx]
-                fname = metadata["filename"]
-                snippet = docs[idx][:300] + "..."
-                url = metadata["hyperlinks"][0]["url"] if metadata["hyperlinks"] else None
+                    # URLs
+                    results_text.insert(tk.END, "\n\nURLs Referenced: ")
+                    urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3]]
 
-
-                results_text.insert(tk.END, "\n")
-                insert_link(results_text,fname, idx, True)
-                results_text.insert(tk.END, "\n\n")
-                results_text.insert(tk.END, "URLs Referenced: ")
-
-                urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3] if "url" in link]
-                for i, url in enumerate(urls):
-                    insert_link(results_text, url, f"url_{i}")
-                    if i < len(urls) - 1:  
+                    for url in urls:
+                        url_tag = unique_tag()
+                        insert_link(results_text, url, url_tag, "black")
                         results_text.insert(tk.END, ", ")
-                results_text.insert(tk.END, "\n")
-                results_text.insert(tk.END, f"{snippet}\n")
 
-            results_text.insert(tk.END, "======================================================")
+                    results_text.insert(tk.END, "\n" + snippet + "\n")
 
-            for rank, idx in enumerate(final_indices):
-                # fname = doc_metadata[idx]["filename"]
-                # snippet = docs[idx][:300] + "..."
-                # results_text.insert(tk.END, f"\n--- Rank {rank + 1}: ")
-                # insert_link(results_text, fname, idx)
+            else:
+                results_text.insert(tk.END, "No Boolean matches found.\n")
+            return
 
-                metadata = doc_metadata[idx]
-                fname = metadata["filename"]
-                snippet = docs[idx][:300] + "..."
-                url = metadata["hyperlinks"][0]["url"] if metadata["hyperlinks"] else None
+        # VECTOR SEARCH
+        nn = NearestNeighbors(n_neighbors=5, metric="cosine")
+        nn.fit(doc_vectors)
+        search = perform_reformed_search(query_text, docs, nn, vocab, inverted_index)
+        orig = search["initial_results"]
+        reform = search["reformatted_results"]
 
-                results_text.insert(tk.END, "\n")
-                insert_link(results_text,fname, idx, True)
-                results_text.insert(tk.END, "\n\n")
-                results_text.insert(tk.END, f"\n--- Rank {rank + 1}: ")
+        results_text.insert(tk.END, f"\nReformatted Query: {search['reformed_query']}\n")
 
-                urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3] if "url" in link]
-                for i, url in enumerate(urls):
-                    insert_link(results_text, url, f"url_{i}")
-                    if i < len(urls) - 1:  
-                        results_text.insert(tk.END, ", ")
-                results_text.insert(tk.END, "\n")
-                results_text.insert(tk.END, f"{snippet}\n")
+        # ORIGINAL RESULTS — GREEN
+        results_text.insert(tk.END, "\nTop Vector Space Results (Original):\n")
 
-                
-        elif result_ids:
+        for idx in orig:
+            metadata = doc_metadata[idx]
+            fname = metadata["filename"]
+            snippet = docs[idx][:300] + "..."
 
-            results_text.insert(tk.END, "Boolean Match Found In:\n")
-            for doc_id in result_ids:
-                metadata = doc_metadata[doc_id]
-                fname = metadata["filename"]
-                snippet = docs[doc_id][:300] + "..."
-                url = metadata["hyperlinks"][0]["url"] if metadata["hyperlinks"] else None
+            tag = unique_tag()
 
-                results_text.insert(tk.END, "\n")
-                insert_link(results_text,fname, doc_id, True)
-                results_text.insert(tk.END, "\n\n")
-                results_text.insert(tk.END, "URLs Referenced: ")
+            results_text.insert(tk.END, "\n")
+            insert_link(results_text, fname, tag, "green", centered=True)
 
-                urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3] if "url" in link]
-                for i, url in enumerate(urls):
-                    insert_link(results_text, url, f"url_{i}")
-                    if i < len(urls) - 1:  
-                        results_text.insert(tk.END, ", ")
-                results_text.insert(tk.END, "\n")
-                results_text.insert(tk.END, f"{snippet}\n")
-        #else:
-           # results_text.insert(tk.END, "No match found.\n")
-        #this does nothing maybe we add a margin of error for the top results in vector search which if not passed moves to this execution
+            # URLs
+            results_text.insert(tk.END, "\n\nURLs Referenced: ")
+            urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3]]
 
+            for url in urls:
+                url_tag = unique_tag()
+                insert_link(results_text, url, url_tag, "green")
+                results_text.insert(tk.END, ", ")
+
+            results_text.insert(tk.END, "\n" + snippet + "\n")
+
+        results_text.insert(tk.END, "\n======================================================\n")
+
+        # REFORMATTED RESULTS — BLUE
+        results_text.insert(tk.END, "\nTop Vector Space Results (Reformatted):\n")
+
+        for idx in reform:
+            metadata = doc_metadata[idx]
+            fname = metadata["filename"]
+            snippet = docs[idx][:300] + "..."
+
+            tag = unique_tag()
+
+            results_text.insert(tk.END, "\n")
+            insert_link(results_text, fname, tag, "blue", centered=True)
+
+            # URLs
+            results_text.insert(tk.END, "\n\nURLs Referenced: ")
+            urls = [link["url"] for link in metadata.get("hyperlinks", [])[:3]]
+
+            for url in urls:
+                url_tag = unique_tag()
+                insert_link(results_text, url, url_tag, "blue")
+                results_text.insert(tk.END, ", ")
+
+            results_text.insert(tk.END, "\n" + snippet + "\n")
+
+        results_text.insert(tk.END, "\n======================================================\n")
+
+
+    # SHOW INVERTED INDEX SAMPLE
     def show_inverted_index_sample():
         results_text.delete(1.0, tk.END)
 
-        sample_size = 5
-        for i, (word, data) in enumerate(inverted_index.items()):
-            if i >= sample_size:
-                break
+        for i, (word, data) in enumerate(list(inverted_index.items())[:5]):
             results_text.insert(tk.END, f"Word: '{word}' | DF: {data['df']}\n")
-            for posting in data["postings"][:2]:  # show first 2 postings only
+            for posting in data["postings"][:2]:
                 results_text.insert(
                     tk.END,
                     f"  Doc ID: {posting['doc_id']}, TF: {posting['tf']}, "
@@ -213,26 +218,11 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
                 )
             results_text.insert(tk.END, "-" * 40 + "\n")
 
-
-    search_button = ttk.Button(root, text="Search", command=search_button_clicked)
-    search_button.pack(pady=5)
-
-    search_button = ttk.Button(root, text="Show Inverted Index", command=show_inverted_index_sample)
-    search_button.pack(pady=5)
+    # Buttons
+    ttk.Button(root, text="Search", command=search_button_clicked).pack(pady=5)
+    ttk.Button(root, text="Show Inverted Index", command=show_inverted_index_sample).pack(pady=5)
 
     results_text = tk.Text(root, height=50, width=100)
     results_text.pack(pady=10)
 
     root.mainloop()
-
-
-
-# def test_index_and_metadata():
-#     print("\n=== Document Metadata Sample ===")
-#     for doc_id, metadata in list(doc_metadata.items())[:3]:
-#         print(f"Doc ID: {doc_id}")
-#         print(f"Filename: {metadata['filename']}")
-#         print(f"Length (tokens): {metadata['length']}")
-#         print(f"Hyperlinks: {[link['url'] for link in metadata['hyperlinks']][:3]}")
-#         print("Sample tokens:", metadata["tokens"][:5])
-#         print("-" * 40)
