@@ -1,4 +1,3 @@
-
 from bs4 import BeautifulSoup, Comment
 import re
 from sentence_transformers import SentenceTransformer
@@ -20,111 +19,115 @@ lemmatizer = WordNetLemmatizer()
 nltk.download('wordnet')
 stop_words = set(stopwords.words("english"))
 
-# Load spaCy language model
+# Load spaCy model
 nlp = spacy.load("en_core_web_sm", disable=["ner", "parser"])
 
 print("Indexer Function Begins")
 
+# Precompile regex once (huge speedup)
+TOKEN_RE = re.compile(r'\b[a-zA-Z]+\b')
+
 def tokenize_text_fast(text):
-    # Lowercase and extract words only
-    tokens = re.findall(r'\b[a-zA-Z]+\b', text.lower())
-    # Remove stopwords + lemmatize
-    return [lemmatizer.lemmatize(t) for t in tokens if t not in stop_words]
+    tokens = TOKEN_RE.findall(text.lower())
+    sw = stop_words
+    lemma = lemmatizer.lemmatize
+    return [lemma(t) for t in tokens if t not in sw]
+
 
 def build_index(html_files):
-        # Global var
-        docs = []
-        html_filenames = []
-        doc_metadata = {}
-        inverted_index = defaultdict(lambda: {
-            "df": 0,
-            "postings": []
-        })
 
-        # === PART ONE: LOAD ZIP AND BUILD INVERTED INDEX ===
-        for html_file in html_files:
-                with open(html_file, "r", encoding="utf-8", errors="ignore") as f:
-                    html = f.read()
-                    soup = BeautifulSoup(html, "html.parser")
+    # Pre-bind locals (speed boost)
+    tokenize = tokenize_text_fast
+    BeautifulSoup_local = BeautifulSoup
+    inverted_index = defaultdict(lambda: {"df": 0, "postings": []})
+
+    docs = []
+    html_filenames = []
+    doc_metadata = {}
+
+    MAX_TEXT_LEN = 900_000
+
+    # === PART ONE: PARSE HTML + EXTRACT TOKENS ===
+    for html_file in html_files:
+
+        # HTML reading
+        with open(html_file, "r", encoding="utf-8", errors="ignore") as f:
+            html = f.read()
+
+        # Use lxml paser
+        soup = BeautifulSoup_local(html, "lxml")
+
+        # get_text() is expensive → call once
+        text = soup.get_text()
+        if not text.strip():
+            continue
+
+        if len(text) > MAX_TEXT_LEN:
+            print(f"Skipping long document ({len(text)} chars): {html_file}")
+            continue
+
+        # TOKEN PIPELINE
+        tokens = tokenize(text)
+        clean_text = " ".join(tokens)
+
+        #  extraction of hyperlinks
+        hyperlinks = []
+        append_hyper = hyperlinks.append
+        for a in soup.find_all("a", href=True):
+            append_hyper({
+                "url": a["href"].strip(),
+                "anchor_text": a.get_text(strip=True) or None,
+                "visited": False
+            })
+
+        # store metadata
+        doc_id = len(docs)
+        docs.append(clean_text)
+        html_filenames.append(html_file)
+
+        doc_metadata[doc_id] = {
+            "filename": html_file,
+            "length": len(tokens),
+            "tokens": tokens,
+            "hyperlinks": hyperlinks
+        }
+
+        # Build position map
+        position_map = defaultdict(list)
+        pm_add = position_map
+        for pos, token in enumerate(tokens):
+            pm_add[token].append(pos)
+
+        # Add postings to inverted index
+        for token, positions in position_map.items():
+            entry = inverted_index[token]
+            entry["df"] += 1
+            entry["postings"].append({
+                "doc_id": doc_id,
+                "tf": len(positions),
+                "positions": positions
+            })
 
 
-                    # paragraphs = soup.find_all("p")
-                    # if paragraphs:
-                    #     text = " ".join(p.get_text(separator=" ", strip=True) for p in paragraphs)
-                    # else:
-                    #     text = soup.get_text(separator=" ", strip=True)  # fallback if no <p> tags
+    # === PART TWO: COMPUTE TF-IDF ===
+    N = len(docs)
+    log = math.log
 
-                    text = soup.get_text()
-                    if not text.strip():
-                        continue
-
-                    MAX_TEXT_LEN = 900_000  # spaCy limit is 1,000,000
-
-                    if len(text) > MAX_TEXT_LEN:
-                        print(f"Skipping long document ({len(text)} chars): {html_file}")
-                        continue  
-                    
-                   
-                    tokens = tokenize_text_fast(text)
-
-                    clean_text = " ".join(tokens)
-
-                   # Hyperlinks with anchor text
-                    hyperlinks = []
-                    for a_tag in soup.find_all("a", href=True):
-                        url = a_tag["href"].strip()
-                        anchor_text = a_tag.get_text(separator=" ", strip=True) or None  # Extract anchor text
-                        hyperlinks.append({
-                            "url": url,
-                            "anchor_text": anchor_text,
-                            "visited": False
-                        })
+    for token, entry in inverted_index.items():
+        idf = log(N / (entry["df"] + 1e-10))
+        for p in entry["postings"]:
+            p["tf-idf"] = p["tf"] * idf
 
 
-                    # Store metadata
-                    doc_id = len(docs)
-                    docs.append(clean_text)
-                    html_filenames.append(html_file)
-                    doc_metadata[doc_id] = {
-                        "filename": html_file,
-                        "length": len(tokens),
-                        "tokens": tokens,
-                        "hyperlinks": hyperlinks
-                    }
+    # === PART THREE: BUILD VOCAB + DOC-VECTORS ===
+    vocab = list(inverted_index.keys())
+    word_to_index = {w: i for i, w in enumerate(vocab)}
 
-                    # Build inverted index
-                    position_map = defaultdict(list)
-                    for pos, token in enumerate(tokens):
-                        position_map[token].append(pos)
+    doc_vectors = np.zeros((len(doc_metadata), len(vocab)))
 
-                    for token, positions in position_map.items():
-                        tf = len(positions)
-                        inverted_index[token]["df"] += 1
-                        inverted_index[token]["postings"].append({
-                            "doc_id": doc_id,
-                            "tf": tf,
-                            "positions": positions
-                        })
+    for token, entry in inverted_index.items():
+        col = word_to_index[token]
+        for p in entry["postings"]:
+            doc_vectors[p["doc_id"], col] = p["tf-idf"]
 
-        # === PART ONE: COMPUTE TF-IDF ===
-        N = len(docs)
-        for token, entry in inverted_index.items():
-            df = entry["df"]
-            idf = math.log(N / (df + 1e-10))  # prevent div by zero
-            for posting in entry["postings"]:
-                posting["tf-idf"] = posting["tf"] * idf
-                    
-        # === PART THREE: BUILD VOCAB AND DOC-VECTOR MATRIX ===
-        vocab = list(inverted_index.keys())
-        word_to_index = {word: idx for idx, word in enumerate(vocab)}
-
-        doc_vectors = np.zeros((len(doc_metadata), len(vocab)))
-        for token, entry in inverted_index.items():
-            token_index = word_to_index[token]
-            for posting in entry["postings"]:
-                doc_id = posting["doc_id"]
-                tfidf = posting["tf-idf"]
-                doc_vectors[doc_id][token_index] = tfidf
-        
-        return inverted_index, doc_metadata, docs, doc_vectors, vocab
-        
+    return inverted_index, doc_metadata, docs, doc_vectors, vocab

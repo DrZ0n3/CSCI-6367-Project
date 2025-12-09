@@ -6,90 +6,103 @@ import re
 from sklearn.metrics.pairwise import cosine_similarity as cos
 from sklearn.neighbors import NearestNeighbors
 from sentence_transformers import SentenceTransformer
-
+# Embedding model
 semantic_model = SentenceTransformer("all-MiniLM-L6-v2")
+# Lightweight spaCy pipeline
 nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "tagger"])
 
 print("Search Engine Function Started")
 
+# === PART ONE: NEAREST NEIGHBORS ===
 def build_nearest_neighbors(doc_vectors):
-    nn = NearestNeighbors(n_neighbors=5, metric='cosine')
+    nn = NearestNeighbors(n_neighbors=5, metric="cosine")
     nn.fit(doc_vectors)
     return nn
 
-# === PART THREE: COSINE SIMILARITY ===
+
+# === PART TWO: COSINE SIMILARITY ===
 def cosine_similarity(query_vec, doc_vecs):
-    query_norm = np.linalg.norm(query_vec)
-    doc_norms = np.linalg.norm(doc_vecs, axis=1)
-    query_norm = query_norm if query_norm != 0 else 1e-10
-    doc_norms[doc_norms == 0] = 1e-10
-    sims = doc_vecs @ query_vec / (doc_norms * query_norm)
-    return sims
+    qn = np.linalg.norm(query_vec)
+    qn = qn if qn != 0 else 1e-10
+
+    dn = np.linalg.norm(doc_vecs, axis=1)
+    dn[dn == 0] = 1e-10
+
+    return (doc_vecs @ query_vec) / (dn * qn)
+
 
 # === PART THREE: QUERY VECTOR ===
-def compute_query_vector(query_tokens,vocab,inverted_index,N):
-    
-    query_vector = np.zeros(len(vocab))
-    term_counts = defaultdict(int)
-    word_to_index = {word: i for i, word in enumerate(vocab)}
-    for token in query_tokens:
-        if token in word_to_index:
-            term_counts[token] += 1
+def compute_query_vector(query_tokens, vocab, inverted_index, N):
+
+    V = len(vocab)
+    qvec = np.zeros(V, dtype=float)
+    term_counts = Counter(query_tokens)
+
+    logN = math.log(N)
+    vocab_index = {word: i for i, word in enumerate(vocab)}
+ # alias for faster lookup
+
     for token, tf in term_counts.items():
         if token in inverted_index:
             df = inverted_index[token]["df"]
-            idf = math.log(N / (df + 1e-10))
-            tfidf = tf * idf
-            index = word_to_index[token]
-            query_vector[index] = tfidf
-    return query_vector
+            idf = logN - math.log(df + 1e-10)
+            qvec[vocab_index[token]] = tf * idf
+
+    return qvec
+
 
 
 # === PART FOUR: PHRASAL SEARCH ===
-def phrasal_search(phrase,inverted_index):
+def phrasal_search(phrase, inverted_index):
 
-    # Tokenize phrase
+    # Tokenize only once
     phrase_tokens = [
-        token.lemma_.lower()
-        for token in nlp(phrase)
-        if token.is_alpha and not token.is_stop
+        tok.lemma_.lower()
+        for tok in nlp(phrase)
+        if tok.is_alpha and not tok.is_stop
     ]
 
     if not phrase_tokens:
         return set()
 
-    # If a word is missing, return nothing.
-    for token in phrase_tokens:
-        if token not in inverted_index:
+    # If any word missing
+    for t in phrase_tokens:
+        if t not in inverted_index:
             return set()
 
-    # Find the documents
-    candidate_docs = [
-        {p["doc_id"] for p in inverted_index[token]["postings"]}
-        for token in phrase_tokens
+    # Document intersection
+    doc_sets = [
+        {p["doc_id"] for p in inverted_index[t]["postings"]}
+        for t in phrase_tokens
     ]
-    common_docs = set.intersection(*candidate_docs)
+    candidate_docs = set.intersection(*doc_sets)
 
     # Check adjacency
-    matching_docs = set()
-    for doc_id in common_docs:
-        # Collect position lists for each term
-        position_lists = []
-        for token in phrase_tokens:
-            for posting in inverted_index[token]["postings"]:
-                if posting["doc_id"] == doc_id:
-                    position_lists.append(posting["positions"])
+    results = set()
+    first_term = phrase_tokens[0]
+
+    for doc_id in candidate_docs:
+
+        # Collect all position lists
+        pos_lists = []
+        for t in phrase_tokens:
+            for post in inverted_index[t]["postings"]:
+                if post["doc_id"] == doc_id:
+                    pos_lists.append(post["positions"])
                     break
 
-        # Check if consecutive
-        base_positions = position_lists[0]
+        base_positions = pos_lists[0]
+
+        # Sliding window adjacency check
         for pos in base_positions:
-            if all((pos + i) in position_lists[i] for i in range(1, len(position_lists))):
-                matching_docs.add(doc_id)
-                break  # one match is enough for the doc
+            if all((pos + i) in pos_lists[i] for i in range(1, len(pos_lists))):
+                results.add(doc_id)
+                break
 
-    return matching_docs
+    return results
 
+
+# Stopwords
 stop_words = set([
     "the","a","an","and","or","to","of","in","on","at","for","with",
     "is","it","this","that","as","are","be","by","from","was","were",
@@ -97,107 +110,102 @@ stop_words = set([
 ])
 
 
+
+# NEIGHBOR SEARCH
 def search_docs(nn, query_vec, n_results=10):
-    distances, indices = nn.kneighbors([query_vec], n_neighbors=n_results)
+    _, indices = nn.kneighbors([query_vec], n_neighbors=n_results)
     return indices[0]
 
 
+
+# UNIQUE TERM COUNT
 def select_top_pages(S, docs, top_k):
     scores = []
     for doc_id in S:
-        text = docs[doc_id].lower()
-        unique_terms = set(text.split())
-        score = len(unique_terms)
+        score = len(set(docs[doc_id].split()))
         scores.append((score, doc_id))
 
     scores.sort(reverse=True)
-    return [doc_id for _, doc_id in scores[:top_k]]
+    return [doc for _, doc in scores[:top_k]]
 
 
-def extract_keywords(A, docs, top_n=50):
+
+# keyword extraction
+def extract_keywords(A, docs):
     words = []
     for doc_id in A:
-        text = docs[doc_id].lower()
-        text = re.sub(r"[^a-z0-9 ]", " ", text)
-        tokens = text.split()
-
-        for tok in tokens:
-            if tok not in stop_words and len(tok) > 2:
+        text = re.sub(r"[^a-z0-9 ]", " ", docs[doc_id].lower())
+        for tok in text.split():
+            if len(tok) > 2 and tok not in stop_words:
                 words.append(tok)
-
     return Counter(words)
 
 
 
+# correlation scoring
 def corr_keywords_hybrid(query_text, freq_counter, select_n=10, alpha=0.75, beta=0.25):
 
     keywords = list(freq_counter.keys())
 
-    # --- semantic similarity ---
+    # Semantic
     query_vec = semantic_model.encode([query_text])
     kw_vecs = semantic_model.encode(keywords)
-
     sims = cos(query_vec, kw_vecs)[0]
+
     sem_norm = (sims - sims.min()) / (sims.max() - sims.min() + 1e-8)
 
-    # --- frequency weighting ---
+    # Frequency
     freqs = np.array([freq_counter[w] for w in keywords], dtype=float)
     freq_norm = (freqs - freqs.min()) / (freqs.max() - freqs.min() + 1e-8)
 
-    # --- hybrid score ---
-    final_score = alpha * sem_norm + beta * freq_norm
+    # Combined score
+    score = alpha * sem_norm + beta * freq_norm
+    top_idx = np.argsort(score)[::-1][:select_n]
 
-    # rank
-    ranked_ids = np.argsort(final_score)[::-1]
-    top = [keywords[i] for i in ranked_ids[:select_n]]
-
-    return top
-
+    return [keywords[i] for i in top_idx]
 
 
 def reform_query(query_text, correlated):
-    query_words = query_text.split()
-    all_words = list(dict.fromkeys(query_words + correlated))
-
-    return " ".join(all_words)
+    return " ".join(dict.fromkeys(query_text.split() + correlated))
 
 
-def perform_reformed_search(query_text, docs, nn, vocab, inverted_index, 
+# MAIN REFORMED SEARCH
+def perform_reformed_search(query_text, docs, nn, vocab, inverted_index,
                             top_k=5, k=10, n_results=5):
 
+    # Pre-tokenize query
     query_tokens = query_text.lower().split()
-    query_vec = compute_query_vector(
-        query_tokens,
-        vocab,
-        inverted_index,
-        len(docs)
-)
 
-    # 1) First retrieval S
-    S = search_docs(nn, query_vec, n_results=n_results)
-
-    # 2) Select A ⊂ S
-    A = select_top_pages(S, docs, top_k)
-
-    # 3) Extract keyword frequencies
-    freq_counter = extract_keywords(A, docs)
-
-    # 4) Hybrid semantic + statistical correlation
-    correlated = corr_keywords_hybrid(query_text, freq_counter, k)
-
-    # 5) Reformulate query
-    reformed_q = reform_query(query_text, correlated)
-
-    # 6) Compute reformulated query vector
-    rq_tokens = reformed_q.lower().split()
-    rq_vec = compute_query_vector(rq_tokens,vocab,inverted_index,len(docs)
+    # Query vector
+    qvec = compute_query_vector(
+        query_tokens, vocab, inverted_index, len(docs)
     )
 
-    # 7) Second retrieval S'
-    S_prime = search_docs(nn, rq_vec, n_results=n_results)
+    # First retrieval
+    S = search_docs(nn, qvec, n_results)
 
-    # 8) Final result = S ∪ S'
-    final_results = list(dict.fromkeys(list(S) + list(S_prime)))
+    # Pick top pages
+    A = select_top_pages(S, docs, top_k)
+
+    # Extract keywords
+    freq_counter = extract_keywords(A, docs)
+
+    # Semantic + frequency correlation
+    correlated = corr_keywords_hybrid(query_text, freq_counter, k)
+
+    # Reform query
+    rq = reform_query(query_text, correlated)
+
+    # Second vector
+    rq_vec = compute_query_vector(
+        rq.lower().split(), vocab, inverted_index, len(docs)
+    )
+
+    # Second retrieval
+    S_prime = search_docs(nn, rq_vec, n_results)
+
+    # Merge
+    final = list(dict.fromkeys(list(S) + list(S_prime)))
 
     return {
         "initial_results": list(S),
@@ -205,103 +213,8 @@ def perform_reformed_search(query_text, docs, nn, vocab, inverted_index,
         "top_docs": A,
         "keywords": list(freq_counter.keys()),
         "correlated_keywords": correlated,
-        "reformed_query": reformed_q,
-        "final_results": final_results
+        "reformed_query": rq,
+        "final_results": final
     }
-
-#hey jarvis build me a test function
-def test_search_engine():
-    print("\n=== RUNNING TEST ===")
-
-    # ---------------------------
-    # 1) Toy document collection
-    # ---------------------------
-    docs = {
-        0: "The quick brown fox jumps over the lazy dog.",
-        1: "A fast brown fox leaps across a sleepy canine.",
-        2: "Deep learning methods require large datasets.",
-        3: "Neural networks are used for deep learning.",
-        4: "The dog is lazy but the fox is quick."
-    }
-
-    # ---------------------------
-    # 2) Build vocabulary + index
-    # ---------------------------
-    vocab = {}
-    word_to_index = {}
-    inverted_index = defaultdict(lambda: {"df": 0, "postings": []})
-    index_counter = 0
-
-    for doc_id, text in docs.items():
-        tokens = [t.lemma_.lower() for t in nlp(text)]
-        position = 0
-        seen = set()
-
-        for tok in tokens:
-            if tok.isalpha() and tok not in stop_words:
-
-                # add to vocab
-                if tok not in vocab:
-                    vocab[tok] = index_counter
-                    word_to_index[tok] = index_counter
-                    index_counter += 1
-
-                # update inverted index
-                idx = vocab[tok]
-                if tok not in seen:
-                    inverted_index[tok]["df"] += 1
-                    seen.add(tok)
-
-                inverted_index[tok]["postings"].append({
-                    "doc_id": doc_id,
-                    "positions": [position]
-                })
-            position += 1
-
-    # ---------------------------
-    # 3) Build doc vectors (TF-IDF)
-    # ---------------------------
-    N = len(docs)
-    V = len(vocab)
-    doc_vectors = np.zeros((N, V))
-
-    for doc_id, text in docs.items():
-        tokens = [t.lemma_.lower() for t in nlp(text)]
-        counts = Counter([tok for tok in tokens if tok in vocab])
-
-        for tok, tf in counts.items():
-            df = inverted_index[tok]["df"]
-            idf = math.log(N / (df + 1e-10))
-            doc_vectors[doc_id, vocab[tok]] = tf * idf
-
-    # ---------------------------
-    # 4) Test query
-    # ---------------------------
-    query = "brown fox"
-
-    results = perform_reformed_search(
-        query_text=query,
-        docs=docs,
-        doc_vectors=doc_vectors,
-        vocab=vocab,
-        inverted_index=inverted_index,
-        top_k=3,
-        select_n=3,
-        n_results=5
-    )
-
-    # ---------------------------
-    # 5) Print results
-    # ---------------------------
-    print("\n=== RESULTS ===")
-    print("Initial Results:", results["initial_results"])
-    print("Top Docs:", results["top_docs"])
-    print("Extracted Keywords:", results["keywords"])
-    print("Correlated Keywords:", results["correlated_keywords"])
-    print("Reformed Query:", results["reformed_query"])
-    print("Final Results:", results["final_results"])
-
-    print("\n=== TEST COMPLETE ===\n")
 #test_search_engine()
-#jarvis, tell these kids to get their shit together
-
+#  #jarvis, tell these kids to get their shit together
