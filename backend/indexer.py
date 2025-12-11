@@ -1,4 +1,3 @@
-
 from bs4 import BeautifulSoup, Comment
 import re
 from sentence_transformers import SentenceTransformer
@@ -9,7 +8,6 @@ import math
 import webbrowser
 import nltk
 import pickle
-
 import spacy
 from spacy.lang.en import English
 from nltk.stem import WordNetLemmatizer
@@ -111,8 +109,13 @@ def build_index(html_files):
         for token, entry in inverted_index.items():
             df = entry["df"]
             idf = math.log(N / (df + 1e-10))  # prevent div by zero
+           
             for posting in entry["postings"]:
                 posting["tf-idf"] = posting["tf"] * idf
+
+        # === PART FOUR: SORT POSTINGS AFTER TF-IDF ===
+        for token, entry in inverted_index.items():
+            entry["postings"].sort(key=lambda p: p["doc_id"])
                     
         # === PART THREE: BUILD VOCAB AND DOC-VECTOR MATRIX ===
         vocab = list(inverted_index.keys())
@@ -126,5 +129,50 @@ def build_index(html_files):
                 tfidf = posting["tf-idf"]
                 doc_vectors[doc_id][token_index] = tfidf
         
-        return inverted_index, doc_metadata, docs, doc_vectors, vocab
+
+        # === PART FIVE: DOCUMENT-DOCUMENT CORRELATIONS ===
+        def fast_document_correlations(doc_vectors, threshold=0.05):
+            doc_vectors = np.array(doc_vectors)  # shape = (N, D)
+            N = doc_vectors.shape[0]
+
+            doc_corr = defaultdict(list)
+
+            # Compute norms once
+            norms = np.linalg.norm(doc_vectors, axis=1)
+            norms[norms == 0] = 1e-9  # avoid division by zero
+
+            # Normalize all vectors (so dot = cosine)
+            normalized = doc_vectors / norms[:, None]
+
+            # BLOCKED SIMILARITY COMPUTATION
+            block = 500   # adjust based on speed
+            for i in range(0, N, block):
+                end_i = min(i + block, N)
+                A = normalized[i:end_i]               # shape (b1, D)
+
+                for j in range(i, N, block):
+                    end_j = min(j + block, N)
+                    B = normalized[j:end_j]           # shape (b2, D)
+
+                    # Compute cosine similarity block
+                    sim_matrix = A @ B.T              # (b1 × b2)
+
+                    # Filter strong pairs only
+                    pairs = np.argwhere(sim_matrix >= threshold)
+
+                    for (a, b) in pairs:
+                        doc_a = i + a
+                        doc_b = j + b
+                        if doc_a == doc_b:
+                            continue
+
+                        sim = float(sim_matrix[a, b])
+
+                        doc_corr[doc_a].append((doc_b, sim))
+                        doc_corr[doc_b].append((doc_a, sim))
+
+            return doc_corr
+        
+        doc_corr = fast_document_correlations(doc_vectors)
+        return inverted_index, doc_metadata, docs, doc_vectors, vocab, doc_corr
         

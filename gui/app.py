@@ -1,18 +1,27 @@
 import numpy as np
-from backend.search import phrasal_search, compute_query_vector, cosine_similarity
+from backend.search import phrasal_search, compute_query_vector
 from backend.query_gobbledygook import booleanMagic
 import tkinter as tk
 from tkinter import ttk
 import webbrowser
 import spacy
 import threading
+import time
 from sklearn.neighbors import NearestNeighbors
 
 print("GUI function started")
 
-
+#Load spacy async
 nlp = spacy.load("en_core_web_sm")
 
+
+# === PART FIVE: RECOMMENDATION STYLYING===
+def configure_result_tags(text_widget):
+    """Configure colored tags for recommended vs normal results."""
+    text_widget.tag_configure("rank", font=("TkDefaultFont", 10, "bold"))
+    text_widget.tag_configure("recommended", foreground="green")
+    text_widget.tag_configure("original", foreground="black")
+    text_widget.tag_configure("score", foreground="gray")
 
 # === PART ONE: GUI FUNCTIONALITY ===
 def insert_link(text_widget, url, doc_id, centered=False):
@@ -32,13 +41,17 @@ def insert_link(text_widget, url, doc_id, centered=False):
     text_widget.tag_bind(doc_id, "<Enter>", lambda e: text_widget.config(cursor="hand2"))
     text_widget.tag_bind(doc_id, "<Leave>", lambda e: text_widget.config(cursor=""))
 
-        
-
 
 # === PART TWO: LAUNCH GUI ===
-def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
-    nn = NearestNeighbors(n_neighbors=5, metric='cosine')
-    nn.fit(doc_vectors)
+print("GUI function reached successfully!")
+def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab, doc_corr):
+    #INITIALIZATION INTO BACKROUND THREADS
+    def init_nn():
+        global nn_model
+        nn_model = NearestNeighbors(n_neighbors=5, metric='cosine')
+        nn_model.fit(doc_vectors)
+
+    threading.Thread(target=init_nn, daemon=True).start()
 
     global search_entry, results_text
     root = tk.Tk()
@@ -107,6 +120,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
         if bool_query:
             result_ids = booleanMagic(query_text,inverted_index)
         
+        print("GUI function Vector Search reached successfully!")
         if result_ids is None:
             # After building doc_vectors (shape: num_docs × vocab_size)
             normalized_docs = doc_vectors / np.linalg.norm(doc_vectors, axis=1, keepdims=True)
@@ -131,15 +145,34 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
             top_indices = np.argsort(scores)[::-1][:k]
 
             results_text.insert(tk.END, "\nTop Vector Space Results:\n")
+            
 
             for rank, idx in enumerate(top_indices):
-                score = scores[idx]                 # cosine similarity
+                score = scores[idx] # cosine similarity
                 fname = doc_metadata[idx]["filename"]
                 snippet = docs[idx][:300] + "..."
+
+                #Top K Results 
                 results_text.insert(tk.END, f"\n--- Rank {rank + 1}: ")
                 insert_link(results_text, fname, idx)
-        elif result_ids:
+                results_text.insert(tk.END, f"\nScore: {score:.4f}\n", ("score",))
+                results_text.insert(tk.END, f"{snippet}\n")
 
+                # === PART FIVE: DOCUMENT TO DOCUMENT RECOMMENDATION ===
+                if idx in doc_corr:
+                        # sort correlations by similarity
+                        neighbors = sorted(doc_corr[idx], key=lambda x: x[1], reverse=True)[:5]
+
+                        if neighbors:
+                            results_text.insert(tk.END, "    Recommended:\n", ("recommended",))
+
+                            for rec_id, sim in neighbors:
+                                rec_name = doc_metadata[rec_id]["filename"]
+                                results_text.insert(tk.END, f"        → ", ("recommended",))
+                                insert_link(results_text, rec_name, rec_id)
+                                results_text.insert(tk.END, f"  (sim={sim:.3f})\n", ("recommended",))      
+                   
+        elif result_ids:
             results_text.insert(tk.END, "Boolean Match Found In:\n")
             for doc_id in result_ids:
                 metadata = doc_metadata[doc_id]
@@ -163,6 +196,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
            # results_text.insert(tk.END, "No match found.\n")
         #this does nothing maybe we add a margin of error for the top results in vector search which if not passed moves to this execution
 
+    print("GUI function Inverted Index reached successfully!")
     def show_inverted_index_sample():
         results_text.delete(1.0, tk.END)
 
@@ -180,7 +214,7 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
                 )
             results_text.insert(tk.END, "-" * 40 + "\n")
 
-
+    print("GUI ttk reached successfully!")
     search_button = ttk.Button(root, text="Search", command=search_button_clicked)
     search_button.pack(pady=5)
 
@@ -190,16 +224,6 @@ def search_engine_gui( inverted_index, doc_metadata, docs, doc_vectors, vocab):
     results_text = tk.Text(root, height=50, width=100)
     results_text.pack(pady=10)
 
+    configure_result_tags(results_text)
+
     root.mainloop()
-
-
-
-# def test_index_and_metadata():
-#     print("\n=== Document Metadata Sample ===")
-#     for doc_id, metadata in list(doc_metadata.items())[:3]:
-#         print(f"Doc ID: {doc_id}")
-#         print(f"Filename: {metadata['filename']}")
-#         print(f"Length (tokens): {metadata['length']}")
-#         print(f"Hyperlinks: {[link['url'] for link in metadata['hyperlinks']][:3]}")
-#         print("Sample tokens:", metadata["tokens"][:5])
-#         print("-" * 40)
