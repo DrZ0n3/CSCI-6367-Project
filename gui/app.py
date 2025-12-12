@@ -145,10 +145,14 @@ def search_engine_gui(inverted_index, doc_metadata, docs, doc_vectors, vocab):
         nn = NearestNeighbors(n_neighbors=5, metric="cosine")
         nn.fit(doc_vectors)
         search = perform_reformed_search(query_text, docs, nn, vocab, inverted_index)
+        keywords = search['correlated_keywords']
         orig = search["initial_results"]
         reform = search["reformatted_results"]
 
         results_text.insert(tk.END, f"\nReformatted Query: {search['reformed_query']}\n")
+
+        results_text.insert(tk.END, f"\Correlated Keywords: {keywords}\n")
+
 
         # ORIGINAL RESULTS — GREEN
         results_text.insert(tk.END, "\nTop Vector Space Results (Original):\n")
